@@ -16,3 +16,4 @@ mobile/android/.gradle/
 mobile/android/local.properties
 mobile/android/app/upload-keystore.jks
 mobile/android/key.properties
+dist/
