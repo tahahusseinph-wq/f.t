@@ -6,6 +6,14 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
+@pytest.fixture(scope="session", autouse=True)
+def qt_app():
+    """تطبيق Qt واحد في الخيط الرئيسي (مطلوب لملفات PDF والواجهة)، كما في التطبيق الحقيقي."""
+    from PySide6.QtWidgets import QApplication
+
+    return QApplication.instance() or QApplication([])
+
+
 @pytest.fixture()
 def tmp_data(monkeypatch):
     d = tempfile.mkdtemp(prefix="ft_test_")

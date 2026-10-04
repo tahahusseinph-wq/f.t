@@ -31,7 +31,8 @@ def ensure_qt() -> None:
     if QGuiApplication.instance() is None:
         import os
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-        QGuiApplication([])
+        from PySide6.QtWidgets import QApplication
+        QApplication([])  # QApplication (وليس QGuiApplication) حتى تعمل الواجهات لاحقاً في نفس العملية
     if not _fonts_loaded:
         for f in (assets_dir() / "fonts").glob("*.ttf"):
             QFontDatabase.addApplicationFont(str(f))
@@ -139,13 +140,27 @@ def document_to_pdf(doc: QTextDocument, path: Path, paper: str = "A4", landscape
     return path
 
 
+def _dispose(doc: QTextDocument) -> None:
+    """حذف المستند فوراً في نفس الخيط.
+
+    عند الإنشاء من خيوط السيرفر، ترك المستند لجامع القمامة يجعله يُحذف لاحقاً من خيط آخر
+    بعد انتهاء خيطه الأصلي، فتتعطل مؤقتات Qt الداخلية."""
+    import shiboken6
+
+    if shiboken6.isValid(doc):
+        shiboken6.delete(doc)
+
+
 def invoice_pdf(session: Session, inv: Invoice, path: Path | str | None = None, paper: str | None = None) -> Path:
     paper = paper or settings.get(session, "printing").get("paper", "A4")
     with _lock:
         doc = build_invoice_document(session, inv, paper)
         out = Path(path) if path else sub_dir("invoices") / f"{inv.number}.pdf"
         out.parent.mkdir(parents=True, exist_ok=True)
-        return document_to_pdf(doc, out, paper)
+        try:
+            return document_to_pdf(doc, out, paper)
+        finally:
+            _dispose(doc)
 
 
 def html_to_pdf(html: str, path: Path | str, paper: str = "A4", landscape: bool = False) -> Path:
@@ -155,7 +170,10 @@ def html_to_pdf(html: str, path: Path | str, paper: str = "A4", landscape: bool 
         doc.setDefaultFont(QFont("Cairo", 9))
         doc.addResource(QTextDocument.ResourceType.ImageResource, "logo", QImage(str(logo_path())))
         doc.setHtml(html)
-        return document_to_pdf(doc, Path(path), paper, landscape)
+        try:
+            return document_to_pdf(doc, Path(path), paper, landscape)
+        finally:
+            _dispose(doc)
 
 
 # ---------------- ملصقات الباركود ----------------
