@@ -1,3 +1,6 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -29,9 +32,9 @@ android {
     }
 
     // التوقيع: ضع ملف android/key.properties (انظر docs/BUILD.md)، وإلا يُستخدم مفتاح التطوير
-    val keyProps = java.util.Properties()
+    val keyProps = Properties()
     val keyFile = rootProject.file("key.properties")
-    if (keyFile.exists()) keyFile.inputStream().use { keyProps.load(it) }
+    if (keyFile.exists()) FileInputStream(keyFile).use { stream -> keyProps.load(stream) }
 
     signingConfigs {
         if (keyFile.exists()) {
