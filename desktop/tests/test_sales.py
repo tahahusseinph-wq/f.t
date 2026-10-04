@@ -21,12 +21,17 @@ def test_sale_reduces_stock_and_triggers_alert(db, admin, product_factory):
 
 
 def test_cannot_oversell(db, admin, product_factory):
-    from ftapp.services import auth_service
+    from ftapp.services import auth_service, permissions
 
     seller = auth_service.create_user(db, admin, "seller1", "Seller123", "seller")
     p = product_factory("قلم", qty=1)
-    with pytest.raises(ValidationError):
-        sales_service.create_sale(db, seller, sales_service.SaleRequest([sales_service.CartLine(p.id, 3)]))
+    for user in (seller, admin):
+        with pytest.raises(ValidationError):
+            sales_service.create_sale(db, user, sales_service.SaleRequest([sales_service.CartLine(p.id, 3)]))
+    admin.permissions = {"sales.oversell": True}
+    assert permissions.has(admin, "sales.oversell")
+    sales_service.create_sale(db, admin, sales_service.SaleRequest([sales_service.CartLine(p.id, 3)]))
+    assert p.quantity == -2
 
 
 def test_credit_sale_needs_customer_and_updates_balance(db, admin, product_factory):

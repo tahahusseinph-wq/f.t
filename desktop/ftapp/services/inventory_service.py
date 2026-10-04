@@ -124,6 +124,7 @@ def adjust(session: Session, actor: User | None, product_id: int, warehouse_id: 
     if new_qty < 0 and not allow_negative:
         raise ValidationError(f"الكمية غير كافية من «{product.name}» (المتوفر {qty(level.quantity):g})")
     level.quantity = new_qty
+    product.updated_at = now()  # حتى تلتقط مزامنة الموبايل تغيّر الكمية
 
     if product.track_expiry:
         if delta > 0:

@@ -35,9 +35,12 @@ ROLES: dict[str, str] = {
     "viewer": "مستخدم (بحث فقط)",
 }
 
+# صلاحيات لا تُمنح تلقائياً لأي دور (حتى الأدمن) ويجب تفعيلها يدوياً للمستخدم
+OPT_IN: set[str] = {"sales.oversell"}
+
 ROLE_DEFAULTS: dict[str, set[str]] = {
-    "admin": set(PERMISSIONS),
-    "manager": set(PERMISSIONS) - {"users.manage", "settings.manage"},
+    "admin": set(PERMISSIONS) - OPT_IN,
+    "manager": set(PERMISSIONS) - {"users.manage", "settings.manage"} - OPT_IN,
     "seller": {"products.view", "inventory.view", "sales.create", "sales.discount", "customers.manage",
                "shifts.manage"},
     "viewer": {"products.view"},
@@ -46,9 +49,9 @@ ROLE_DEFAULTS: dict[str, set[str]] = {
 
 def effective_permissions(user: User) -> set[str]:
     perms = set(ROLE_DEFAULTS.get(user.role, set()))
-    if user.role == "admin":
-        return perms
     for perm, granted in (user.permissions or {}).items():
+        if user.role == "admin" and perm not in OPT_IN:
+            continue  # الأدمن يملك كل الصلاحيات الأساسية دائماً
         if granted:
             perms.add(perm)
         else:

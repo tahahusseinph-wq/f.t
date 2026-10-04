@@ -32,7 +32,9 @@ def admin(db):
 
     auth_service.run_setup(db, auth_service.SetupData(username="admin", password="Admin1234", secondary_rate=15000))
     db.commit()
-    return auth_service.authenticate(db, "admin", "Admin1234")
+    user = auth_service.authenticate(db, "admin", "Admin1234")
+    db.commit()  # لا نترك قفل كتابة مفتوحاً على SQLite
+    return user
 
 
 @pytest.fixture()

@@ -82,6 +82,7 @@ def run_setup(session: Session, data: SetupData) -> str:
     recovery = security.generate_recovery_key()
     settings.set(session, "recovery_key_hash", _hash_recovery(recovery))
     settings.set(session, "setup_done", True)
+    ensure_server_identity(session)
     audit.log(session, admin, "setup", "user", admin.id)
     return recovery
 
@@ -241,22 +242,23 @@ def _admin_count(session: Session) -> int:
 
 # ---------- جلسات الأجهزة (الموبايل) ----------
 
+def ensure_server_identity(session: Session) -> None:
+    """يولّد معرّف السيرفر ومفتاح توقيع الجلسات مرة واحدة (عند الإعداد وعند كل تشغيل)."""
+    if not settings.get(session, "jwt_secret"):
+        settings.set(session, "jwt_secret", security.generate_secret())
+    if not settings.get(session, "server_id"):
+        settings.set(session, "server_id", uuid.uuid4().hex[:12])
+
+
 def jwt_secret(session: Session) -> str:
     secret = settings.get(session, "jwt_secret")
     if not secret:
-        secret = security.generate_secret()
-        settings.set(session, "jwt_secret", secret)
-        session.commit()
+        raise ValidationError("السيرفر غير مهيأ بعد")
     return secret
 
 
 def server_id(session: Session) -> str:
-    sid = settings.get(session, "server_id")
-    if not sid:
-        sid = uuid.uuid4().hex[:12]
-        settings.set(session, "server_id", sid)
-        session.commit()
-    return sid
+    return settings.get(session, "server_id") or ""
 
 
 def issue_device_token(session: Session, user: User, device_name: str, ip: str) -> str:
