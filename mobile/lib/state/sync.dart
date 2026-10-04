@@ -57,7 +57,7 @@ class SyncService extends ChangeNotifier {
     final api = session.api!;
     final since = full ? null : await OfflineDb.meta('products_since');
     final res = await api.get<Map<String, dynamic>>('/sync/products', query: {
-      if (since != null) 'since': since,
+      'since': ?since,
       if (session.currency != null) 'currency': session.currency,
     });
     final items = (res['items'] as List).cast<Map<String, dynamic>>();

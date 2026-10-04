@@ -81,7 +81,7 @@ class Cart extends ChangeNotifier {
         'discount': discount,
         'payment_method': paymentMethod,
         if (paymentMethod != 'cash') 'paid': paid,
-        if (currency != null) 'currency_code': currency,
+        'currency_code': ?currency,
         'notes': notes,
       };
 }
