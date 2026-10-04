@@ -17,7 +17,7 @@ from ftapp.services.errors import NotFound, PermissionDenied, ValidationError
 
 PAYMENT_METHODS = {"cash": "نقدي", "credit": "آجل", "partial": "دفع جزئي"}
 KINDS = {"sale": "فاتورة بيع", "return": "مرتجع", "quotation": "عرض سعر"}
-STATUSES = {"posted": "مُرحّلة", "cancelled": "ملغاة", "converted": "محوّل لفاتورة", "open": "مفتوح"}
+STATUSES = {"posted": "مكتملة", "cancelled": "ملغاة", "converted": "محوّل لفاتورة", "open": "مفتوح"}
 
 
 @dataclass

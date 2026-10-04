@@ -38,7 +38,7 @@ def test_duplicate_code_rejected(db, admin):
 def test_custom_fields_and_visibility(db, admin):
     f_public = catalog_service.save_field(db, admin, "بلد المنشأ", "text", visible_to_users=True)
     f_private = catalog_service.save_field(db, admin, "ملاحظة داخلية", "text", visible_to_users=False)
-    f_req = catalog_service.save_field(db, admin, "الضمان بالأشهر", "number", required=True, default_value="12")
+    catalog_service.save_field(db, admin, "الضمان بالأشهر", "number", required=True, default_value="12")
     p = catalog_service.create_product(db, admin, catalog_service.ProductInput(
         name="شاشة", cost_price=100, margin=20, custom_values={f_public.id: "الصين", f_private.id: "سري"}))
     db.commit()

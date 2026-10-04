@@ -1,0 +1,486 @@
+"""نقطة البيع: سلة، زبون، شرائح أسعار، عروض، دفع نقدي/آجل، وفاتورة فورية."""
+from __future__ import annotations
+
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtWidgets import (QButtonGroup, QComboBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout,
+                               QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+                               QPushButton, QRadioButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+
+from ftapp.core.utils import fmt_money, fmt_qty
+from ftapp.models import Currency, Customer, Product
+from ftapp.services import (catalog_service, currency_service, finance_service, sales_service)
+from ftapp.services.errors import ServiceError
+from ftapp.ui import icons
+from ftapp.ui.context import ctx
+from ftapp.ui.pages.base import Page
+from ftapp.ui.theme import tokens
+from ftapp.ui.widgets.common import Card, Toast, button, confirm, error, fill_combo, muted
+from ftapp.ui.widgets.forms import FormDialog, money_spin
+
+
+class CustomerQuickDialog(FormDialog):
+    def __init__(self, parent) -> None:
+        super().__init__(parent, "زبون جديد")
+        with ctx.session() as (s, _):
+            tiers = [(t.name, t.id) for t in catalog_service.list_tiers(s)]
+        self.name = self.line("الاسم *")
+        self.phone = self.line("الهاتف")
+        self.phone.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        self.tier = self.combo("شريحة السعر", tiers)
+        self.on_save = self._do
+        self.finish_layout()
+
+    def _do(self):
+        with ctx.session() as (s, _):
+            return sales_service.save_customer(s, self.name.text(), self.phone.text(), tier_id=self.tier.currentData()).id
+
+
+class POSPage(Page):
+    title = "نقطة البيع"
+    subtitle = "F2 للبحث • F9 لإتمام البيع • Delete لحذف سطر"
+    COLS = ["المنتج", "الكمية", "السعر", "الخصم", "الإجمالي", ""]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.cart: list[dict] = []
+        self.can_discount = ctx.can("sales.discount")
+        self.shift_label = QLabel()
+        self.actions.addWidget(self.shift_label)
+        self.shift_btn = button("فتح وردية", "clock", on_click=self._toggle_shift)
+        self.actions.addWidget(self.shift_btn)
+
+        body = QHBoxLayout()
+        body.setSpacing(14)
+        # ===== العمود الرئيسي: البحث والسلة =====
+        left = QVBoxLayout()
+        left.setSpacing(10)
+        self.search = QLineEdit()
+        self.search.setObjectName("searchBox")
+        self.search.setMinimumHeight(46)
+        self.search.setStyleSheet("font-size: 12pt;")
+        self.search.setPlaceholderText("امسح الباركود أو اكتب الكود/الاسم ثم Enter  (F2)")
+        self.search.addAction(icons.icon("barcode"), QLineEdit.ActionPosition.LeadingPosition)
+        self.search.returnPressed.connect(self._search_enter)
+        self.search.textChanged.connect(lambda: self._suggest_timer.start(200))
+        left.addWidget(self.search)
+        self.suggest = QListWidget()
+        self.suggest.setMaximumHeight(170)
+        self.suggest.hide()
+        self.suggest.itemActivated.connect(self._pick_suggestion)
+        self.suggest.itemClicked.connect(self._pick_suggestion)
+        left.addWidget(self.suggest)
+
+        self.table = QTableWidget(0, len(self.COLS))
+        self.table.setHorizontalHeaderLabels(self.COLS)
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for i, w in ((1, 110), (2, 120), (3, 100), (4, 130), (5, 44)):
+            hh.setSectionResizeMode(i, QHeaderView.ResizeMode.Fixed)
+            self.table.setColumnWidth(i, w)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(48)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        left.addWidget(self.table, 1)
+        self.empty_hint = muted("السلة فارغة — ابدأ بمسح باركود أو البحث عن منتج")
+        self.empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        left.addWidget(self.empty_hint)
+        lw = QWidget()
+        lw.setLayout(left)
+        body.addWidget(lw, 3)
+
+        # ===== لوحة الدفع =====
+        panel = Card("الزبون والدفع", icon_name="wallet")
+        panel.setMinimumWidth(380)
+        panel.setMaximumWidth(440)
+        crow = QHBoxLayout()
+        self.customer = QComboBox()
+        self.customer.setEditable(True)
+        self.customer.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.customer.currentIndexChanged.connect(self._customer_changed)
+        crow.addWidget(self.customer, 1)
+        crow.addWidget(button("", "plus", on_click=self._new_customer, tooltip="زبون جديد"))
+        panel.body.addLayout(crow)
+        self.customer_info = muted("")
+        panel.add(self.customer_info)
+        grid = QGridLayout()
+        self.tier = QComboBox()
+        self.tier.currentIndexChanged.connect(self._recalc)
+        self.currency = QComboBox()
+        self.currency.currentIndexChanged.connect(self._recalc)
+        grid.addWidget(QLabel("شريحة السعر"), 0, 0)
+        grid.addWidget(self.tier, 0, 1)
+        grid.addWidget(QLabel("العملة"), 1, 0)
+        grid.addWidget(self.currency, 1, 1)
+        panel.body.addLayout(grid)
+        panel.add(self._sep())
+
+        totals = QGridLayout()
+        totals.setVerticalSpacing(6)
+        self.l_sub = QLabel()
+        self.l_tax = QLabel()
+        self.discount = money_spin()
+        self.discount.setEnabled(self.can_discount)
+        self.discount.valueChanged.connect(self._recalc)
+        totals.addWidget(QLabel("المجموع"), 0, 0)
+        totals.addWidget(self.l_sub, 0, 1, Qt.AlignmentFlag.AlignLeft)
+        totals.addWidget(QLabel("خصم على الفاتورة"), 1, 0)
+        totals.addWidget(self.discount, 1, 1)
+        totals.addWidget(QLabel("الضريبة"), 2, 0)
+        totals.addWidget(self.l_tax, 2, 1, Qt.AlignmentFlag.AlignLeft)
+        panel.body.addLayout(totals)
+        self.l_total = QLabel()
+        self.l_total.setObjectName("bigTotal")
+        self.l_total.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        panel.add(self.l_total)
+        self.l_alt = muted("")
+        self.l_alt.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        panel.add(self.l_alt)
+        panel.add(self._sep())
+
+        pm = QHBoxLayout()
+        self.pay_group = QButtonGroup(self)
+        self.p_cash = QRadioButton("نقدي")
+        self.p_credit = QRadioButton("آجل (دين)")
+        self.p_partial = QRadioButton("دفع جزئي")
+        self.p_cash.setChecked(True)
+        for i, rb in enumerate((self.p_cash, self.p_credit, self.p_partial)):
+            self.pay_group.addButton(rb, i)
+            pm.addWidget(rb)
+            rb.toggled.connect(self._pay_mode)
+        panel.body.addLayout(pm)
+        prow = QGridLayout()
+        self.paid = money_spin()
+        self.paid.valueChanged.connect(self._update_change)
+        self.l_change = QLabel()
+        self.l_change.setStyleSheet("font-weight: bold;")
+        prow.addWidget(QLabel("المبلغ المستلم"), 0, 0)
+        prow.addWidget(self.paid, 0, 1)
+        prow.addWidget(self.l_change, 1, 0, 1, 2)
+        panel.body.addLayout(prow)
+        self.notes = QLineEdit()
+        self.notes.setPlaceholderText("ملاحظات على الفاتورة")
+        panel.add(self.notes)
+        panel.body.addStretch(1)
+        self.pay_btn = button("إتمام البيع  (F9)", "check", "primary", on_click=self._checkout)
+        self.pay_btn.setMinimumHeight(52)
+        self.pay_btn.setStyleSheet("font-size: 13pt;")
+        panel.add(self.pay_btn)
+        brow = QHBoxLayout()
+        brow.addWidget(button("عرض سعر", "receipt", on_click=self._quotation))
+        brow.addWidget(button("تفريغ السلة", "trash", on_click=self._clear))
+        panel.body.addLayout(brow)
+        body.addWidget(panel, 2)
+        self.root.addLayout(body, 1)
+
+        self._suggest_timer = QTimer(self)
+        self._suggest_timer.setSingleShot(True)
+        self._suggest_timer.timeout.connect(self._update_suggestions)
+        QShortcut(QKeySequence("F9"), self, activated=self._checkout)
+        QShortcut(QKeySequence("F2"), self, activated=lambda: (self.search.setFocus(), self.search.selectAll()))
+        QShortcut(QKeySequence("Delete"), self.table, activated=self._remove_selected)
+        ctx.signals.products_changed.connect(self._recalc)
+        self._load_refs()
+
+    @staticmethod
+    def _sep() -> QFrame:
+        f = QFrame()
+        f.setFrameShape(QFrame.Shape.HLine)
+        f.setStyleSheet(f"color: {tokens()['border']};")
+        return f
+
+    # ---------------- المراجع ----------------
+    def _load_refs(self) -> None:
+        with ctx.session() as (s, u):
+            customers = [(f"{c.name}  {c.phone}".strip(), c.id) for c in sales_service.list_customers(s)]
+            tiers = [(t.name, t.id) for t in catalog_service.list_tiers(s)]
+            curs = [(f"{c.name} ({c.symbol})", c.code) for c in currency_service.list_currencies(s)]
+            display = currency_service.display(s).code
+        fill_combo(self.customer, customers, self.customer.currentData(), placeholder="زبون نقدي")
+        fill_combo(self.tier, tiers, self.tier.currentData())
+        fill_combo(self.currency, curs, self.currency.currentData() or display)
+        self._update_shift()
+
+    def refresh(self) -> None:
+        self._load_refs()
+        self._recalc()
+        self.search.setFocus()
+
+    def _update_shift(self) -> None:
+        with ctx.session() as (s, u):
+            shift = finance_service.current_shift(s, u)
+            text = f"وردية مفتوحة منذ {shift.opened_at:%H:%M}" if shift else "لا توجد وردية مفتوحة"
+        self.shift_label.setText(text)
+        self.shift_label.setObjectName("badgeSuccess" if shift else "badgeWarning")
+        self.shift_label.style().unpolish(self.shift_label)
+        self.shift_label.style().polish(self.shift_label)
+        self.shift_btn.setText("إغلاق الوردية" if shift else "فتح وردية")
+        self._shift_open = shift is not None
+
+    def _toggle_shift(self) -> None:
+        from ftapp.ui.pages.finance_page import CloseShiftDialog
+        if self._shift_open:
+            CloseShiftDialog(self).exec()
+        else:
+            amount, ok = QInputDialog.getDouble(self, "فتح وردية", "الرصيد النقدي الافتتاحي في الصندوق", 0, 0, 1e12, 2)
+            if not ok:
+                return
+            try:
+                with ctx.session() as (s, u):
+                    finance_service.open_shift(s, u, amount)
+            except ServiceError as exc:
+                error(self, str(exc))
+        self._update_shift()
+
+    # ---------------- البحث ----------------
+    def _update_suggestions(self) -> None:
+        text = self.search.text().strip()
+        self.suggest.clear()
+        if len(text) < 2:
+            self.suggest.hide()
+            return
+        with ctx.session() as (s, _):
+            items, _ = catalog_service.search_products(s, text, limit=12)
+            for p in items:
+                price, _promo = catalog_service.final_price(s, p, self.tier.currentData())
+                it = QListWidgetItem(f"{p.name}  —  {p.code}  •  {fmt_money(price)}  •  المتوفر {fmt_qty(p.quantity)}")
+                it.setData(Qt.ItemDataRole.UserRole, p.id)
+                if p.quantity <= 0:
+                    it.setForeground(Qt.GlobalColor.red)
+                self.suggest.addItem(it)
+        self.suggest.setVisible(self.suggest.count() > 0)
+
+    def _pick_suggestion(self, item: QListWidgetItem) -> None:
+        self.add_product(item.data(Qt.ItemDataRole.UserRole))
+
+    def _search_enter(self) -> None:
+        text = self.search.text().strip()
+        if not text:
+            return
+        qty = 1.0
+        if "*" in text:  # صيغة 3*CODE لإضافة كمية
+            left, _, right = text.partition("*")
+            try:
+                qty, text = float(left), right.strip()
+            except ValueError:
+                pass
+        with ctx.session() as (s, _):
+            p = catalog_service.find_by_code(s, text)
+            pid = p.id if p else None
+        if pid is None and self.suggest.count():
+            pid = self.suggest.item(0).data(Qt.ItemDataRole.UserRole)
+        if pid is None:
+            Toast.show_message(self, f"لا يوجد منتج بالكود «{text}»", "warning")
+            self.search.selectAll()
+            return
+        self.add_product(pid, qty)
+
+    def add_product(self, pid: int, qty: float = 1.0) -> None:
+        for line in self.cart:
+            if line["pid"] == pid:
+                line["qty"] += qty
+                break
+        else:
+            with ctx.session() as (s, _):
+                p = s.get(Product, pid)
+                if not p.is_active:
+                    Toast.show_message(self, "هذا المنتج موقوف عن البيع", "warning")
+                    return
+                self.cart.append({"pid": p.id, "name": p.name, "code": p.code, "unit": p.unit, "qty": qty,
+                                  "price": None, "discount": 0.0})
+        self.search.clear()
+        self.suggest.hide()
+        self._recalc()
+        self.search.setFocus()
+
+    # ---------------- الحساب ----------------
+    def _cur(self, s) -> Currency:
+        return s.get(Currency, self.currency.currentData()) or currency_service.display(s)
+
+    def _request(self, s) -> sales_service.SaleRequest:
+        cur = self._cur(s)
+        lines = [sales_service.CartLine(l["pid"], l["qty"],
+                                        currency_service.to_base(l["price"], cur) if l["price"] is not None else None,
+                                        currency_service.to_base(l["discount"], cur)) for l in self.cart]
+        method = "cash" if self.p_cash.isChecked() else ("credit" if self.p_credit.isChecked() else "partial")
+        return sales_service.SaleRequest(
+            lines=lines, customer_id=self.customer.currentData(), tier_id=self.tier.currentData(),
+            discount=currency_service.to_base(self.discount.value(), cur), payment_method=method,
+            paid=currency_service.to_base(self.paid.value(), cur) if method != "cash" else None,
+            currency_code=cur.code, notes=self.notes.text().strip())
+
+    def _recalc(self) -> None:
+        self.empty_hint.setVisible(not self.cart)
+        with ctx.session() as (s, _):
+            cur = self._cur(s)
+            conv = lambda v: currency_service.convert(v, cur)  # noqa: E731
+            try:
+                calc = sales_service.compute_totals(s, self._request(s))
+                self.l_sub.setStyleSheet("")
+            except ServiceError as exc:
+                Toast.show_message(self, str(exc), "warning")
+                return
+            stock = {p.id: p.quantity for p in [s.get(Product, l["pid"]) for l in self.cart]}
+            base = currency_service.base(s)
+        self.table.setRowCount(len(self.cart))
+        t = tokens()
+        for r, (line, c) in enumerate(zip(self.cart, calc["lines"])):
+            name = QTableWidgetItem(f"{line['name']}\n{line['code']}" + (f"  🏷 {c['promotion'].name}" if c["promotion"] else ""))
+            if stock.get(line["pid"], 0) < line["qty"]:
+                name.setForeground(Qt.GlobalColor.red)
+                name.setToolTip(f"المتوفر {fmt_qty(stock.get(line['pid'], 0))} فقط")
+            self.table.setItem(r, 0, name)
+            q = QDoubleSpinBox()
+            q.setRange(0.001, 1e9)
+            q.setDecimals(3 if line["unit"] in ("متر", "كيلو", "لتر") else 0)
+            q.setValue(line["qty"])
+            q.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            q.valueChanged.connect(lambda v, i=r: self._set(i, "qty", v))
+            self.table.setCellWidget(r, 1, q)
+            price = money_spin(decimals=cur.decimals)
+            price.setValue(conv(c["unit_price"]))
+            price.setEnabled(self.can_discount)
+            price.editingFinished.connect(lambda i=r, w=price: self._set(i, "price", w.value()))
+            self.table.setCellWidget(r, 2, price)
+            disc = money_spin(decimals=cur.decimals)
+            disc.setValue(conv(c["discount"]))
+            disc.setEnabled(self.can_discount)
+            disc.editingFinished.connect(lambda i=r, w=disc: self._set(i, "discount", w.value()))
+            self.table.setCellWidget(r, 3, disc)
+            tot = QTableWidgetItem(fmt_money(conv(c["line_total"]), cur.symbol, cur.decimals))
+            tot.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(r, 4, tot)
+            rm = QPushButton()
+            rm.setProperty("variant", "ghost")
+            rm.setIcon(icons.icon("x", t["danger"]))
+            rm.clicked.connect(lambda _=False, i=r: self._remove(i))
+            self.table.setCellWidget(r, 5, rm)
+        f = lambda v: fmt_money(conv(v), cur.symbol, cur.decimals)  # noqa: E731
+        self.l_sub.setText(f(calc["subtotal"]))
+        self.l_tax.setText(f(calc["tax_amount"]) + (f" ({calc['tax_rate']:g}%)" if calc["tax_rate"] else ""))
+        self.total_base = calc["total"]
+        self.total_display = conv(calc["total"])
+        self.l_total.setText(f(calc["total"]))
+        self.l_alt.setText(fmt_money(calc["total"], base.symbol, base.decimals) if cur.code != base.code else "")
+        self.pay_btn.setEnabled(bool(self.cart))
+        self._update_change()
+
+    def _set(self, i: int, key: str, value: float) -> None:
+        if i >= len(self.cart):
+            return
+        self.cart[i][key] = value
+        QTimer.singleShot(0, self._recalc)
+
+    def _remove(self, i: int) -> None:
+        if i < len(self.cart):
+            self.cart.pop(i)
+            self._recalc()
+
+    def _remove_selected(self) -> None:
+        r = self.table.currentRow()
+        if r >= 0:
+            self._remove(r)
+
+    def _pay_mode(self) -> None:
+        cash = self.p_cash.isChecked()
+        if self.p_credit.isChecked():
+            self.paid.setValue(0)
+        self.paid.setEnabled(not self.p_credit.isChecked())
+        self._update_change()
+        _ = cash
+
+    def _update_change(self) -> None:
+        total = getattr(self, "total_display", 0)
+        paid = self.paid.value()
+        with ctx.session() as (s, _):
+            cur = self._cur(s)
+        if self.p_cash.isChecked():
+            change = paid - total
+            if paid and change >= 0:
+                self.l_change.setText(f"الباقي للزبون: {fmt_money(change, cur.symbol, cur.decimals)}")
+                self.l_change.setStyleSheet(f"color: {tokens()['success']}; font-weight: bold;")
+            elif paid:
+                self.l_change.setText(f"المبلغ أقل من الإجمالي بـ {fmt_money(-change, cur.symbol, cur.decimals)}")
+                self.l_change.setStyleSheet(f"color: {tokens()['danger']}; font-weight: bold;")
+            else:
+                self.l_change.setText("")
+        else:
+            rest = max(0.0, total - (paid if self.p_partial.isChecked() else 0))
+            self.l_change.setText(f"يُسجل ديناً على الزبون: {fmt_money(rest, cur.symbol, cur.decimals)}")
+            self.l_change.setStyleSheet(f"color: {tokens()['warning']}; font-weight: bold;")
+
+    def _customer_changed(self) -> None:
+        cid = self.customer.currentData()
+        if cid:
+            with ctx.session() as (s, _):
+                c = s.get(Customer, cid)
+                info = f"الهاتف: {c.phone or '—'}"
+                if c.balance:
+                    info += f" • الرصيد المستحق: {currency_service.format_amount(s, c.balance)}"
+                tier = c.tier_id
+            self.customer_info.setText(info)
+            if tier:
+                self.tier.setCurrentIndex(max(0, self.tier.findData(tier)))
+        else:
+            self.customer_info.setText("")
+            self.tier.setCurrentIndex(0)
+        self._recalc()
+
+    def _new_customer(self) -> None:
+        dlg = CustomerQuickDialog(self)
+        if dlg.exec():
+            self._load_refs()
+            self.customer.setCurrentIndex(max(0, self.customer.findData(dlg.result_value)))
+
+    # ---------------- الإتمام ----------------
+    def _checkout(self) -> None:
+        if not self.cart:
+            return
+        if not self._shift_open and not confirm(self, "لا توجد وردية مفتوحة. المتابعة بدون وردية؟\n"
+                                                    "(لن تُحتسب الفاتورة ضمن صندوق أي وردية)"):
+            return
+        if self.p_cash.isChecked() and self.paid.value() and self.paid.value() < self.total_display - 0.001:
+            error(self, "المبلغ المستلم أقل من الإجمالي. اختر «دفع جزئي» أو صحّح المبلغ.")
+            return
+        try:
+            with ctx.session() as (s, u):
+                inv = sales_service.create_sale(s, u, self._request(s))
+                inv_id, number = inv.id, inv.number
+        except ServiceError as exc:
+            error(self, str(exc))
+            return
+        self._clear(ask=False)
+        Toast.show_message(self, f"تم البيع — فاتورة {number}", "success")
+        from ftapp.ui.dialogs.invoice_preview import InvoicePreviewDialog
+        InvoicePreviewDialog(self, inv_id).exec()
+        self.search.setFocus()
+
+    def _quotation(self) -> None:
+        if not self.cart:
+            return
+        try:
+            with ctx.session() as (s, u):
+                q = sales_service.create_quotation(s, u, self._request(s))
+                qid = q.id
+        except ServiceError as exc:
+            error(self, str(exc))
+            return
+        self._clear(ask=False)
+        from ftapp.ui.dialogs.invoice_preview import InvoicePreviewDialog
+        InvoicePreviewDialog(self, qid).exec()
+
+    def _clear(self, ask: bool = True) -> None:
+        if ask and self.cart and not confirm(self, "تفريغ السلة؟"):
+            return
+        self.cart.clear()
+        self.discount.setValue(0)
+        self.paid.setValue(0)
+        self.notes.clear()
+        self.p_cash.setChecked(True)
+        self.customer.setCurrentIndex(0)
+        self._recalc()
+
+    def open_item(self, payload) -> None:
+        if isinstance(payload, dict) and payload.get("product_id"):
+            self.add_product(payload["product_id"])

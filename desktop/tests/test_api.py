@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ftapp.api.app import create_app
-from ftapp.services import auth_service, catalog_service, settings_service
+from ftapp.services import auth_service, catalog_service
 
 
 @pytest.fixture()
@@ -67,7 +67,7 @@ def test_sync_ops_and_products(client, db, product_factory):
     h = login(client)
     full = client.get("/api/v1/sync/products", headers=h).json()
     assert full["full"] and any(i["id"] == p.id for i in full["items"])
-    seller = auth_service.create_user(db, None, "seller2", "Seller123", "seller", permissions={"inventory.adjust": True})
+    auth_service.create_user(db, None, "seller2", "Seller123", "seller", permissions={"inventory.adjust": True})
     db.commit()
     h = login(client, "seller2", "Seller123")
     count = client.post("/api/v1/counts", json={}, headers=h).json()
