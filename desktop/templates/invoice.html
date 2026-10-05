@@ -41,20 +41,16 @@
 </table>
 <hr>
 {% else %}
-<table width="100%" cellspacing="0" cellpadding="4">
-  <tr>
-    <td width="60%" valign="middle">
-      <span class="title">{{ company.name }}</span><br>
-      {% if company.name_en %}<span class="sub">{{ company.name_en }}</span><br>{% endif %}
+<table width="100%" cellspacing="0" cellpadding="2">
+  {% if show_logo %}<tr><td align="center"><img src="logo" width="{{ logo_size }}" height="{{ logo_size }}"></td></tr>{% endif %}
+  <tr><td align="center"><span class="title">{{ company.name }}</span>
+      {% if company.name_en %}<br><span class="sub">{{ company.name_en }}</span>{% endif %}</td></tr>
+  <tr><td align="center">
       {% if company.address %}<span class="sub">{{ company.address }}</span><br>{% endif %}
       {% if company.phone %}<span class="sub">هاتف: {{ company.phone }}</span>{% endif %}
       {% if company.email %}<span class="sub"> — {{ company.email }}</span>{% endif %}
       {% if company.tax_number %}<br><span class="sub">الرقم الضريبي: {{ company.tax_number }}</span>{% endif %}
-    </td>
-    <td width="40%" align="left" valign="middle">
-      {% if show_logo %}<img src="logo" width="{{ logo_size }}" height="{{ logo_size }}">{% endif %}
-    </td>
-  </tr>
+  </td></tr>
 </table>
 <table width="100%" cellspacing="0" cellpadding="5">
   <tr><td class="badge" align="center">{{ doc_title }}</td></tr>

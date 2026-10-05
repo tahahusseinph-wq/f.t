@@ -146,3 +146,21 @@ def test_reorder_suggestions(db, admin, product_factory):
     rows = report_service.reorder_suggestions(db, lookback_days=3)
     assert rows and rows[0]["product"].id == p.id and rows[0]["suggested"] > 0
     notification_service.scan_all(db)
+
+
+def test_shamcash_sale_is_paid_but_outside_cash_drawer(db, admin, product_factory):
+    p = product_factory("شاحن", cost=10, margin=50, qty=5)
+    finance_service.open_shift(db, admin, 100)
+    inv = sales_service.create_sale(db, admin, sales_service.SaleRequest(
+        [sales_service.CartLine(p.id, 2)], payment_method="shamcash"))
+    assert inv.paid == inv.total == 30 and inv.payment_method == "shamcash"
+    c = sales_service.save_customer(db, "زبون شام", "0999")
+    c.balance = 50
+    pay = sales_service.receive_payment(db, admin, c.id, 20, method="shamcash")
+    assert pay.method == "shamcash" and c.balance == 30
+    assert "شام كاش" in sales_service.customer_statement(db, c.id)[-1]["desc"]
+    with pytest.raises(ValidationError):
+        sales_service.receive_payment(db, admin, c.id, 5, method="bitcoin")
+    summary = finance_service.shift_summary(db, finance_service.current_shift(db, admin))
+    assert summary["sales_cash"] == 0 and summary["payments"] == 0 and summary["shamcash"] == 50
+    assert summary["expected"] == 100 and summary["credit_sales"] == 0

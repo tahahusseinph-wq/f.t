@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtWidgets import QCheckBox, QFileDialog, QHBoxLayout, QInputDialog, QLineEdit, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QCheckBox, QFileDialog, QHBoxLayout, QLineEdit, QSplitter, QVBoxLayout, QWidget
 from PySide6.QtCore import Qt
 
 from ftapp.models import Customer
@@ -43,6 +43,20 @@ class CustomerDialog(FormDialog):
             return sales_service.save_customer(s, self.name.text(), self.phone.text(), self.address.text(),
                                                self.tier.currentData(), self.limit.value(), self.notes.text(),
                                                self.customer_id).id
+
+
+class PaymentDialog(FormDialog):
+    """تسجيل دفعة من زبون: المبلغ + طريقة الدفع (نقدي / شام كاش)."""
+
+    def __init__(self, parent, name: str, balance: float) -> None:
+        super().__init__(parent, "تسجيل دفعة", save_text="تسجيل")
+        self.form.addRow(muted(f"الزبون: {name} • الدين الحالي {balance:,.2f}"))
+        self.amount = money_spin()
+        self.amount.setValue(max(balance, 0))
+        self.row("المبلغ المستلم", self.amount)
+        self.method = self.combo("طريقة الدفع", [("نقدي", "cash"), ("شام كاش", "shamcash")], "cash")
+        self.on_save = lambda: True
+        self.finish_layout()
 
 
 class CustomersPage(Page):
@@ -93,7 +107,10 @@ class CustomersPage(Page):
         ])
         self.card.add(self.statement, 1)
         splitter.addWidget(self.card)
-        splitter.setSizes([600, 600])
+        splitter.setChildrenCollapsible(False)
+        left.setMinimumWidth(320)
+        self.card.setMinimumWidth(320)
+        splitter.setSizes([500, 500])
         self.root.addWidget(splitter, 1)
         self.current_id: int | None = None
         ctx.signals.sales_changed.connect(self.mark_dirty)
@@ -139,12 +156,13 @@ class CustomersPage(Page):
         with ctx.session() as (s, _):
             c = s.get(Customer, self.current_id)
             name, bal = c.name, c.balance
-        amount, ok = QInputDialog.getDouble(self, "تسجيل دفعة", f"المبلغ المستلم من {name} (الدين {bal:,.2f})",
-                                            max(bal, 0), 0, 1e12, 2)
-        if ok and amount > 0:
+        dlg = PaymentDialog(self, name, bal)
+        if dlg.exec() and dlg.amount.value() > 0:
+            amount, method = dlg.amount.value(), dlg.method.currentData()
+
             def do():
                 with ctx.session() as (s, u):
-                    sales_service.receive_payment(s, u, self.current_id, amount)
+                    sales_service.receive_payment(s, u, self.current_id, amount, method=method)
             run_safely(self, do, "تم تسجيل الدفعة")
             self.refresh_now()
 

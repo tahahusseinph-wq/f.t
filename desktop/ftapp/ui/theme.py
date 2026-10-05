@@ -29,6 +29,16 @@ _mode = "light"
 FONT_FAMILY = "Cairo"
 
 
+def compact() -> bool:
+    """شاشة صغيرة (لابتوب 1366x768 مثلاً): نصغّر الخط والهوامش حتى لا تختفي العناصر."""
+    from PySide6.QtGui import QGuiApplication
+    screen = QGuiApplication.primaryScreen()
+    if screen is None:
+        return False
+    g = screen.availableGeometry()
+    return g.width() < 1500 or g.height() < 820
+
+
 def tokens() -> dict[str, str]:
     return _current
 
@@ -50,7 +60,7 @@ def load_fonts() -> None:
 
 def stylesheet(t: dict[str, str]) -> str:
     return f"""
-* {{ font-family: "{FONT_FAMILY}"; font-size: 10pt; }}
+* {{ font-family: "{FONT_FAMILY}"; font-size: {9 if compact() else 10}pt; }}
 QWidget {{ color: {t['text']}; }}
 QMainWindow, QDialog, #page {{ background: {t['bg']}; }}
 QToolTip {{ background: {t['surface']}; color: {t['text']}; border: 1px solid {t['border']}; padding: 6px; border-radius: 6px; }}
@@ -66,7 +76,7 @@ QToolTip {{ background: {t['surface']}; color: {t['text']}; border: 1px solid {t
 #navSection {{ color: #5F7186; font-size: 8pt; padding: 10px 14px 2px 14px; }}
 
 #topbar {{ background: {t['surface']}; border-bottom: 1px solid {t['border']}; }}
-#pageTitle {{ font-size: 15pt; font-weight: bold; }}
+#pageTitle {{ font-size: {13 if compact() else 15}pt; font-weight: bold; }}
 #pageSubtitle {{ color: {t['muted']}; }}
 
 #card {{ background: {t['surface']}; border: 1px solid {t['border']}; border-radius: 14px; }}
@@ -77,9 +87,9 @@ QToolTip {{ background: {t['surface']}; color: {t['text']}; border: 1px solid {t
 #muted {{ color: {t['muted']}; }}
 #hint {{ color: {t['muted']}; font-size: 8.5pt; }}
 #error {{ color: {t['danger']}; }}
-#bigTotal {{ font-size: 22pt; font-weight: bold; color: {t['primary']}; }}
+#bigTotal {{ font-size: {18 if compact() else 22}pt; font-weight: bold; color: {t['primary']}; }}
 
-QPushButton {{ background: {t['surface']}; border: 1px solid {t['border']}; border-radius: 9px; padding: 7px 14px; }}
+QPushButton {{ background: {t['surface']}; border: 1px solid {t['border']}; border-radius: 9px; padding: {5 if compact() else 7}px {10 if compact() else 14}px; }}
 QPushButton:hover {{ border-color: {t['primary']}; color: {t['primary']}; }}
 QPushButton:pressed {{ background: {t['surface2']}; }}
 QPushButton:disabled {{ color: {t['muted']}; background: {t['surface2']}; border-color: {t['border']}; }}

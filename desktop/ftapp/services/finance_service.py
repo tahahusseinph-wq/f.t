@@ -99,10 +99,10 @@ def open_shift(session: Session, actor: User, opening_cash: float = 0.0) -> Shif
 
 
 def shift_summary(session: Session, shift: Shift) -> dict[str, float]:
-    def total(kind: str) -> float:
+    def total(kind: str) -> float:  # النقد الفعلي فقط: مبالغ شام كاش لا تدخل الصندوق
         return money(session.scalar(select(func.coalesce(func.sum(Invoice.paid), 0))
                                     .where(Invoice.shift_id == shift.id, Invoice.kind == kind,
-                                           Invoice.status == "posted")))
+                                           Invoice.status == "posted", Invoice.payment_method != "shamcash")))
 
     def count(kind: str) -> int:
         return session.scalar(select(func.count(Invoice.id)).where(Invoice.shift_id == shift.id, Invoice.kind == kind,
@@ -111,15 +111,21 @@ def shift_summary(session: Session, shift: Shift) -> dict[str, float]:
     sales_cash = total("sale")
     refunds = total("return")
     payments = money(session.scalar(select(func.coalesce(func.sum(CustomerPayment.amount), 0))
-                                    .where(CustomerPayment.shift_id == shift.id)))
+                                    .where(CustomerPayment.shift_id == shift.id, CustomerPayment.method != "shamcash")))
     expenses = money(session.scalar(select(func.coalesce(func.sum(Expense.amount), 0))
                                     .where(Expense.shift_id == shift.id, Expense.paid_from_cash.is_(True))))
     sales_total = money(session.scalar(select(func.coalesce(func.sum(Invoice.total), 0))
                                        .where(Invoice.shift_id == shift.id, Invoice.kind == "sale",
                                               Invoice.status == "posted")))
+    sham_sales = money(session.scalar(select(func.coalesce(func.sum(Invoice.paid), 0))
+                                      .where(Invoice.shift_id == shift.id, Invoice.kind == "sale",
+                                             Invoice.status == "posted", Invoice.payment_method == "shamcash")))
+    shamcash = money(sham_sales
+                     + session.scalar(select(func.coalesce(func.sum(CustomerPayment.amount), 0))
+                                      .where(CustomerPayment.shift_id == shift.id, CustomerPayment.method == "shamcash")))
     expected = money(shift.opening_cash + sales_cash - refunds + payments - expenses)
     return {"opening": shift.opening_cash, "sales_cash": sales_cash, "sales_total": sales_total,
-            "credit_sales": money(sales_total - sales_cash), "refunds": refunds, "payments": payments,
+            "credit_sales": money(sales_total - sales_cash - sham_sales), "shamcash": shamcash, "refunds": refunds, "payments": payments,
             "expenses": expenses, "expected": expected, "invoices": count("sale"), "returns": count("return")}
 
 

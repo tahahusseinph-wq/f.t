@@ -99,4 +99,5 @@ class CustomerPayment(Base):
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     shift_id: Mapped[int | None] = mapped_column(ForeignKey("shifts.id", ondelete="SET NULL"), nullable=True)
     notes: Mapped[str] = mapped_column(String(256), default="")
+    method: Mapped[str] = mapped_column(String(16), default="cash", server_default="cash")  # cash, shamcash
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)

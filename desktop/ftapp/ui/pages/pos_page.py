@@ -14,7 +14,7 @@ from ftapp.services.errors import ServiceError
 from ftapp.ui import icons
 from ftapp.ui.context import ctx
 from ftapp.ui.pages.base import Page
-from ftapp.ui.theme import tokens
+from ftapp.ui.theme import compact, tokens
 from ftapp.ui.widgets.common import Card, Toast, button, confirm, error, fill_combo, muted
 from ftapp.ui.widgets.forms import FormDialog, money_spin
 
@@ -75,11 +75,11 @@ class POSPage(Page):
         self.table.setHorizontalHeaderLabels(self.COLS)
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for i, w in ((1, 110), (2, 120), (3, 100), (4, 130), (5, 44)):
+        for i, w in (((1, 90), (2, 100), (3, 80), (4, 100), (5, 40)) if compact() else ((1, 110), (2, 120), (3, 100), (4, 130), (5, 44))):
             hh.setSectionResizeMode(i, QHeaderView.ResizeMode.Fixed)
             self.table.setColumnWidth(i, w)
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(48)
+        self.table.verticalHeader().setDefaultSectionSize(40 if compact() else 48)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         left.addWidget(self.table, 1)
@@ -92,7 +92,7 @@ class POSPage(Page):
 
         # ===== لوحة الدفع =====
         panel = Card("الزبون والدفع", icon_name="wallet")
-        panel.setMinimumWidth(380)
+        panel.setMinimumWidth(300 if compact() else 380)
         panel.setMaximumWidth(440)
         crow = QHBoxLayout()
         self.customer = QComboBox()
@@ -139,15 +139,17 @@ class POSPage(Page):
         panel.add(self.l_alt)
         panel.add(self._sep())
 
-        pm = QHBoxLayout()
+        pm = QGridLayout()
+        pm.setHorizontalSpacing(10)
         self.pay_group = QButtonGroup(self)
         self.p_cash = QRadioButton("نقدي")
+        self.p_sham = QRadioButton("شام كاش")
         self.p_credit = QRadioButton("آجل (دين)")
         self.p_partial = QRadioButton("دفع جزئي")
         self.p_cash.setChecked(True)
-        for i, rb in enumerate((self.p_cash, self.p_credit, self.p_partial)):
+        for i, rb in enumerate((self.p_cash, self.p_sham, self.p_credit, self.p_partial)):
             self.pay_group.addButton(rb, i)
-            pm.addWidget(rb)
+            pm.addWidget(rb, i // 2, i % 2)
             rb.toggled.connect(self._pay_mode)
         panel.body.addLayout(pm)
         prow = QGridLayout()
@@ -303,11 +305,13 @@ class POSPage(Page):
         lines = [sales_service.CartLine(l["pid"], l["qty"],
                                         currency_service.to_base(l["price"], cur) if l["price"] is not None else None,
                                         currency_service.to_base(l["discount"], cur)) for l in self.cart]
-        method = "cash" if self.p_cash.isChecked() else ("credit" if self.p_credit.isChecked() else "partial")
+        method = ("cash" if self.p_cash.isChecked() else "shamcash" if self.p_sham.isChecked()
+                  else "credit" if self.p_credit.isChecked() else "partial")
+        full = method in sales_service.PAID_IN_FULL
         return sales_service.SaleRequest(
             lines=lines, customer_id=self.customer.currentData(), tier_id=self.tier.currentData(),
             discount=currency_service.to_base(self.discount.value(), cur), payment_method=method,
-            paid=currency_service.to_base(self.paid.value(), cur) if method != "cash" else None,
+            paid=None if full else currency_service.to_base(self.paid.value(), cur),
             currency_code=cur.code, notes=self.notes.text().strip())
 
     def _recalc(self) -> None:
@@ -383,12 +387,10 @@ class POSPage(Page):
             self._remove(r)
 
     def _pay_mode(self) -> None:
-        cash = self.p_cash.isChecked()
-        if self.p_credit.isChecked():
+        if self.p_credit.isChecked() or self.p_sham.isChecked():
             self.paid.setValue(0)
-        self.paid.setEnabled(not self.p_credit.isChecked())
+        self.paid.setEnabled(not (self.p_credit.isChecked() or self.p_sham.isChecked()))
         self._update_change()
-        _ = cash
 
     def _update_change(self) -> None:
         total = getattr(self, "total_display", 0)
@@ -405,6 +407,9 @@ class POSPage(Page):
                 self.l_change.setStyleSheet(f"color: {tokens()['danger']}; font-weight: bold;")
             else:
                 self.l_change.setText("")
+        elif self.p_sham.isChecked():
+            self.l_change.setText("يُسدَّد كامل المبلغ عبر شام كاش (لا يدخل صندوق النقد)")
+            self.l_change.setStyleSheet(f"color: {tokens()['primary']}; font-weight: bold;")
         else:
             rest = max(0.0, total - (paid if self.p_partial.isChecked() else 0))
             self.l_change.setText(f"يُسجل ديناً على الزبون: {fmt_money(rest, cur.symbol, cur.decimals)}")

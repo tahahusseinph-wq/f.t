@@ -6,6 +6,7 @@ from typing import Any
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from ftapp.ui.i18n import tr
+from ftapp.ui.theme import compact
 
 
 class Page(QWidget):
@@ -18,8 +19,9 @@ class Page(QWidget):
         self.setObjectName("page")
         self._dirty = True
         self.root = QVBoxLayout(self)
-        self.root.setContentsMargins(26, 20, 26, 20)
-        self.root.setSpacing(14)
+        small = compact()
+        self.root.setContentsMargins(14, 10, 14, 10) if small else self.root.setContentsMargins(26, 20, 26, 20)
+        self.root.setSpacing(8 if small else 14)
         head = QHBoxLayout()
         head.setSpacing(8)
         titles = QVBoxLayout()

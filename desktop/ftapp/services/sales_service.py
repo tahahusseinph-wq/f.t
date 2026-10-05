@@ -15,7 +15,8 @@ from ftapp.services import (audit, catalog_service, currency_service, inventory_
                             numbering, permissions, settings_service as settings)
 from ftapp.services.errors import NotFound, PermissionDenied, ValidationError
 
-PAYMENT_METHODS = {"cash": "نقدي", "credit": "آجل", "partial": "دفع جزئي"}
+PAYMENT_METHODS = {"cash": "نقدي", "shamcash": "شام كاش", "credit": "آجل", "partial": "دفع جزئي"}
+PAID_IN_FULL = ("cash", "shamcash")  # طرق دفع تُسدَّد كامل المبلغ لحظة البيع
 KINDS = {"sale": "فاتورة بيع", "return": "مرتجع", "quotation": "عرض سعر"}
 STATUSES = {"posted": "مكتملة", "cancelled": "ملغاة", "converted": "محوّل لفاتورة", "open": "مفتوح"}
 
@@ -131,7 +132,7 @@ def create_sale(session: Session, actor: User | None, req: SaleRequest, agreed_p
         raise ValidationError("طريقة دفع غير معروفة")
 
     total = calc["total"]
-    if req.payment_method == "cash":
+    if req.payment_method in PAID_IN_FULL:
         paid = total
     else:
         paid = money(req.paid or 0)
@@ -143,7 +144,7 @@ def create_sale(session: Session, actor: User | None, req: SaleRequest, agreed_p
 
     allow_neg = bool(settings.get(session, "allow_negative_stock")) or permissions.has(actor, "sales.oversell")
     inv = Invoice(number=numbering.next_document_number(session, "sale"), kind="sale", status="posted",
-                  payment_method=req.payment_method if remaining > 0 or req.payment_method == "cash" else "cash")
+                  payment_method=req.payment_method if remaining > 0 or req.payment_method in PAID_IN_FULL else "cash")
     _fill_header(session, inv, req, calc, actor)
     inv.paid = paid
     shift = finance_service.current_shift(session, actor) if actor else None
@@ -364,8 +365,8 @@ def delete_customer(session: Session, customer_id: int) -> None:
     session.delete(c)
 
 
-def receive_payment(session: Session, actor: User | None, customer_id: int, amount: float, notes: str = ""
-                    ) -> CustomerPayment:
+def receive_payment(session: Session, actor: User | None, customer_id: int, amount: float, notes: str = "",
+                    method: str = "cash") -> CustomerPayment:
     from ftapp.services import finance_service
 
     c = session.get(Customer, customer_id)
@@ -373,8 +374,10 @@ def receive_payment(session: Session, actor: User | None, customer_id: int, amou
         raise NotFound("الزبون غير موجود")
     if amount <= 0:
         raise ValidationError("أدخل مبلغاً صحيحاً")
+    if method not in ("cash", "shamcash"):
+        raise ValidationError("طريقة دفع غير معروفة")
     shift = finance_service.current_shift(session, actor) if actor else None
-    pay = CustomerPayment(customer_id=c.id, amount=money(amount), notes=notes, user_id=actor.id if actor else None,
+    pay = CustomerPayment(customer_id=c.id, amount=money(amount), notes=notes, method=method, user_id=actor.id if actor else None,
                           shift_id=shift.id if shift else None)
     session.add(pay)
     c.balance = money(c.balance - amount)
@@ -398,7 +401,8 @@ def customer_statement(session: Session, customer_id: int) -> list[dict[str, Any
         elif inv.payment_method == "credit":
             entries.append({"date": inv.created_at, "desc": f"مرتجع {inv.number}", "debit": 0.0, "credit": inv.total})
     for pay in session.scalars(select(CustomerPayment).where(CustomerPayment.customer_id == customer_id)):
-        entries.append({"date": pay.created_at, "desc": f"دفعة {pay.notes}".strip(), "debit": 0.0,
+        label = "دفعة (شام كاش)" if pay.method == "shamcash" else "دفعة"
+        entries.append({"date": pay.created_at, "desc": f"{label} {pay.notes}".strip(), "debit": 0.0,
                         "credit": pay.amount})
     entries.sort(key=lambda e: e["date"])
     balance = 0.0

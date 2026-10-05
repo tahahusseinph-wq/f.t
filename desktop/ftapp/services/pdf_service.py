@@ -22,7 +22,41 @@ _lock = threading.RLock()
 _fonts_loaded = False
 _env = Environment(loader=FileSystemLoader(str(templates_dir())), autoescape=select_autoescape(["html"]))
 
-PAPERS = {"A4": "A4", "A5": "A5", "80mm": "80mm", "58mm": "58mm"}
+# أنواع الورق: (الاسم الظاهر، معرّف Qt أو عرض الإيصال بالمم)
+PAPERS = {"A3": "A3", "A4": "A4", "A5": "A5", "A6": "A6", "Letter": "Letter", "Legal": "Legal",
+          "80mm": "إيصال 80mm", "58mm": "إيصال 58mm"}
+_PAGE_IDS = {"A3": QPageSize.PageSizeId.A3, "A4": QPageSize.PageSizeId.A4, "A5": QPageSize.PageSizeId.A5,
+             "A6": QPageSize.PageSizeId.A6, "Letter": QPageSize.PageSizeId.Letter, "Legal": QPageSize.PageSizeId.Legal}
+_FONT_SIZES = {"A3": 11, "A4": 9, "A5": 8, "A6": 7, "Letter": 9, "Legal": 9, "80mm": 7, "58mm": 6}
+_logo_cache: dict[tuple, QImage] = {}
+
+
+def transparent_logo() -> QImage:
+    """اللوغو بخلفية مفرغة: البياض يتحول إلى شفافية فيظهر نظيفاً على أي ورقة."""
+    import io
+    from PIL import Image
+
+    path = logo_path()
+    key = (str(path), path.stat().st_mtime_ns)
+    if key not in _logo_cache:
+        im = Image.open(path).convert("RGBA")
+        px = im.load()
+        for y in range(im.height):
+            for x in range(im.width):
+                r, g, b, a = px[x, y]
+                whiteness = min(r, g, b)
+                if whiteness > 232:
+                    px[x, y] = (r, g, b, 0)
+                elif whiteness > 190:  # حواف ناعمة
+                    px[x, y] = (r, g, b, int(a * (232 - whiteness) / 42))
+        box = im.getchannel("A").getbbox()
+        if box:
+            im = im.crop(box)
+        buf = io.BytesIO()
+        im.save(buf, "PNG")
+        _logo_cache.clear()
+        _logo_cache[key] = QImage.fromData(buf.getvalue())
+    return _logo_cache[key]
 
 
 def ensure_qt() -> None:
@@ -68,8 +102,8 @@ def invoice_context(session: Session, inv: Invoice, paper: str = "A4") -> dict[s
     return {
         "inv": inv, "company": settings.get(session, "company"), "currency": cur, "seller": seller,
         "items": items, "doc_title": titles.get(inv.kind, "فاتورة"), "thermal": thermal,
-        "fs": 6 if paper == "58mm" else (7 if thermal else 9),
-        "logo_size": 60 if thermal else 85, "qr_size": 75 if thermal else 90,
+        "fs": _FONT_SIZES.get(paper, 9),
+        "logo_size": 60 if thermal else (70 if paper == "A6" else 95), "qr_size": 75 if thermal else 90,
         "show_logo": print_cfg.get("show_logo", True),
         "payment_label": sales_service.PAYMENT_METHODS.get(inv.payment_method, inv.payment_method),
         "original": inv.original.number if inv.original else "",
@@ -90,14 +124,14 @@ def build_invoice_document(session: Session, inv: Invoice, paper: str = "A4") ->
     html = _env.get_template("invoice.html").render(**invoice_context(session, inv, paper))
     doc = QTextDocument()
     doc.setDefaultFont(QFont("Cairo", 10))
-    doc.addResource(QTextDocument.ResourceType.ImageResource, "logo", QImage(str(logo_path())))
+    doc.addResource(QTextDocument.ResourceType.ImageResource, "logo", transparent_logo())
     qr = QImage.fromData(barcode_service.qr_png(invoice_qr_text(session, inv)))
     doc.addResource(QTextDocument.ResourceType.ImageResource, "qr", qr)
     doc.setHtml(html)
     return doc
 
 
-def _page_for(paper: str, doc: QTextDocument | None = None) -> tuple[QPageSize, QMarginsF]:
+def page_layout(paper: str, doc: QTextDocument | None = None, landscape: bool = False) -> QPageLayout:
     if paper in ("80mm", "58mm"):
         width_mm = 80 if paper == "80mm" else 58
         margin = 3
@@ -106,38 +140,49 @@ def _page_for(paper: str, doc: QTextDocument | None = None) -> tuple[QPageSize, 
             # طول الإيصال حسب المحتوى (صفحة واحدة متصلة)
             doc.setTextWidth((width_mm - 2 * margin) / 25.4 * 72)
             height_mm = max(60.0, doc.size().height() / 72 * 25.4 + 2 * margin + 2)
-        return (QPageSize(QSizeF(width_mm, height_mm), QPageSize.Unit.Millimeter, paper),
-                QMarginsF(margin, margin, margin, margin))
-    size = QPageSize.PageSizeId.A5 if paper == "A5" else QPageSize.PageSizeId.A4
-    return QPageSize(size), QMarginsF(12, 12, 12, 12)
+        return QPageLayout(QPageSize(QSizeF(width_mm, height_mm), QPageSize.Unit.Millimeter, paper),
+                           QPageLayout.Orientation.Portrait, QMarginsF(margin, margin, margin, margin),
+                           QPageLayout.Unit.Millimeter)
+    orientation = QPageLayout.Orientation.Landscape if landscape else QPageLayout.Orientation.Portrait
+    return QPageLayout(QPageSize(_PAGE_IDS.get(paper, QPageSize.PageSizeId.A4)), orientation,
+                       QMarginsF(12, 12, 12, 12), QPageLayout.Unit.Millimeter)
+
+
+def paint_document(doc: QTextDocument, device, layout: QPageLayout, new_page) -> None:
+    """يرسم المستند صفحة صفحة على جهاز رسم (PDF أو طابعة)."""
+    rect_pt = layout.paintRect(QPageLayout.Unit.Point)
+    doc.setPageSize(QSizeF(rect_pt.width(), rect_pt.height()))
+    painter = QPainter(device)
+    painter.scale(device.logicalDpiX() / 72.0, device.logicalDpiY() / 72.0)
+    page_h = rect_pt.height()
+    for i in range(doc.pageCount()):
+        if i:
+            new_page()
+        painter.save()
+        painter.translate(0, -i * page_h)
+        doc.drawContents(painter, QRectF(0, i * page_h, rect_pt.width(), page_h))
+        painter.restore()
+    painter.end()
 
 
 def document_to_pdf(doc: QTextDocument, path: Path, paper: str = "A4", landscape: bool = False) -> Path:
     """يرسم المستند صفحة صفحة (بدون أرقام صفحات تلقائية)."""
     with _lock:
-        page, margins = _page_for(paper, doc)
-        orientation = QPageLayout.Orientation.Landscape if landscape else QPageLayout.Orientation.Portrait
-        layout = QPageLayout(page, orientation, margins, QPageLayout.Unit.Millimeter)
+        layout = page_layout(paper, doc, landscape)
         writer = QPdfWriter(str(path))
         writer.setResolution(300)
         writer.setPageLayout(layout)
         writer.setTitle(path.stem)
         writer.setCreator("Farouk Toumma Trading Group")
-        rect_pt = layout.paintRect(QPageLayout.Unit.Point)
-        doc.setPageSize(QSizeF(rect_pt.width(), rect_pt.height()))
-        painter = QPainter(writer)
-        scale = writer.resolution() / 72.0
-        painter.scale(scale, scale)
-        page_h = rect_pt.height()
-        for i in range(doc.pageCount()):
-            if i:
-                writer.newPage()
-            painter.save()
-            painter.translate(0, -i * page_h)
-            doc.drawContents(painter, QRectF(0, i * page_h, rect_pt.width(), page_h))
-            painter.restore()
-        painter.end()
+        paint_document(doc, writer, layout, writer.newPage)
     return path
+
+
+def print_document(doc: QTextDocument, printer, paper: str = "A4", landscape: bool = False) -> None:
+    with _lock:
+        layout = page_layout(paper, doc, landscape)
+        printer.setPageLayout(layout)
+        paint_document(doc, printer, layout, printer.newPage)
 
 
 def _dispose(doc: QTextDocument) -> None:
@@ -168,7 +213,7 @@ def html_to_pdf(html: str, path: Path | str, paper: str = "A4", landscape: bool 
     with _lock:
         doc = QTextDocument()
         doc.setDefaultFont(QFont("Cairo", 9))
-        doc.addResource(QTextDocument.ResourceType.ImageResource, "logo", QImage(str(logo_path())))
+        doc.addResource(QTextDocument.ResourceType.ImageResource, "logo", transparent_logo())
         doc.setHtml(html)
         try:
             return document_to_pdf(doc, Path(path), paper, landscape)

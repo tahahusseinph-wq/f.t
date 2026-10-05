@@ -59,7 +59,8 @@ class CloseShiftDialog(FormDialog):
         else:
             sm = self.summary
             for label, key in (("الرصيد الافتتاحي", "opening"), ("مبيعات نقدية", "sales_cash"),
-                               ("مبيعات آجلة", "credit_sales"), ("دفعات زبائن", "payments"), ("مرتجعات نقدية", "refunds"),
+                               ("مبيعات آجلة", "credit_sales"), ("دفعات زبائن", "payments"), ("مقبوض عبر شام كاش (خارج الصندوق)", "shamcash"),
+                               ("مرتجعات نقدية", "refunds"),
                                ("مصاريف من الصندوق", "expenses")):
                 self.form.addRow(label, QLabel(f(sm[key])))
             exp = QLabel(f(sm["expected"]))

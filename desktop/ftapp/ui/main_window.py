@@ -158,8 +158,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{APP_NAME} — {ctx.display_name}")
         self.setWindowIcon(QIcon(str(assets_dir() / "icon.png")))
         self.setLayoutDirection(direction())
-        self.resize(1400, 860)
-        self.setMinimumSize(1100, 680)
+        screen = QApplication.primaryScreen().availableGeometry()
+        self.setMinimumSize(min(900, screen.width()), min(540, screen.height()))
+        self.resize(min(1400, screen.width()), min(860, screen.height()))
+        if screen.width() < 1500 or screen.height() < 820:
+            self.setWindowState(Qt.WindowState.WindowMaximized)
         self.pages: dict[str, QWidget] = {}
         self.nav_buttons: dict[str, QPushButton] = {}
         self.visible_specs = [s for s in page_specs() if s.perm is None or ctx.can(s.perm)]
@@ -210,7 +213,7 @@ class MainWindow(QMainWindow):
     def _build_sidebar(self) -> QWidget:
         side = QFrame()
         side.setObjectName("sidebar")
-        side.setFixedWidth(238)
+        side.setFixedWidth(200 if theme.compact() else 238)
         lay = QVBoxLayout(side)
         lay.setContentsMargins(12, 16, 12, 12)
         lay.setSpacing(2)
@@ -290,7 +293,7 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(20, 8, 20, 8)
         search = QPushButton(f"  {tr('بحث شامل... (Ctrl+K)')}")
         search.setIcon(icons.icon("search"))
-        search.setMinimumWidth(360)
+        search.setMinimumWidth(200 if theme.compact() else 360)
         search.setStyleSheet(f"text-align: right; border-radius: 18px; background: {theme.tokens()['surface2']};"
                              f"border: 1px solid transparent; color: {theme.tokens()['muted']}; padding: 8px 14px;")
         search.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -332,8 +335,14 @@ class MainWindow(QMainWindow):
                 Toast.show_message(self, f"تعذر فتح الصفحة: {exc}", "danger")
                 return
             self.pages[key] = page
-            self.stack.addWidget(page)
-        self.stack.setCurrentWidget(page)
+            # تمرير الصفحة داخل منطقة تمرير: إن صغرت الشاشة تظهر أشرطة تمرير بدل أن تختفي العناصر
+            wrapper = QScrollArea()
+            wrapper.setWidgetResizable(True)
+            wrapper.setFrameShape(QFrame.Shape.NoFrame)
+            wrapper.setWidget(page)
+            page._wrapper = wrapper
+            self.stack.addWidget(wrapper)
+        self.stack.setCurrentWidget(getattr(page, "_wrapper", page))
         if key in self.nav_buttons:
             self.nav_buttons[key].setChecked(True)
         if payload is not None and hasattr(page, "open_item"):
