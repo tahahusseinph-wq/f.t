@@ -58,7 +58,8 @@ class ApiServer:
             return
         self.error = None
         config = uvicorn.Config(create_app(lan_only=lan_only), host="0.0.0.0", port=port, log_level="warning",
-                                access_log=False, lifespan="off")
+                                access_log=False, lifespan="off",
+                                log_config=None)  # النسخة المجمّدة بلا console: stdout=None فيفشل تنسيق uvicorn
         self._server = uvicorn.Server(config)
         self._server.install_signal_handlers = lambda: None  # type: ignore[method-assign]
         self.port = port

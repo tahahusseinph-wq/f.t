@@ -71,8 +71,9 @@ def run_migrations() -> None:
     from alembic.config import Config
 
     cfg = Config()
-    cfg.set_main_option("script_location", str(migrations_dir()))
-    cfg.set_main_option("sqlalchemy.url", str(engine().url))
+    # configparser يعامل «%» كرمز استبدال، فيجب مضاعفته (مسارات فيها مسافات أو أحرف خاصة)
+    cfg.set_main_option("script_location", str(migrations_dir()).replace("%", "%%"))
+    cfg.set_main_option("sqlalchemy.url", str(engine().url).replace("%", "%%"))
     with engine().begin() as conn:
         cfg.attributes["connection"] = conn
         command.upgrade(cfg, "head")

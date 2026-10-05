@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
 import '../core/api.dart';
+import '../core/discovery.dart';
 import '../core/offline_db.dart';
 import '../core/storage.dart';
 
@@ -75,6 +76,20 @@ class Session extends ChangeNotifier {
     api = ApiClient(resolved, token: await AppStorage.token);
     await AppStorage.setServer(resolved);
     notifyListeners();
+  }
+
+  /// بحث تلقائي عن سيرفر الأدمن في الشبكة والاتصال بأول سيرفر يستجيب.
+  Future<bool> autoConnect() async {
+    final found = await discoverServers();
+    for (final s in found) {
+      try {
+        await pair(s);
+        return true;
+      } on ApiException {
+        continue;
+      }
+    }
+    return false;
   }
 
   /// إذا تغيّر عنوان الكمبيوتر (DHCP) نحاول بقية العناوين المعروفة.

@@ -8,7 +8,7 @@ import '../state/session.dart';
 import '../widgets/common.dart';
 import 'scanner_screen.dart';
 
-/// ربط التطبيق بكمبيوتر الأدمن: مسح QR، بحث تلقائي، أو إدخال يدوي.
+/// اتصال يدوي بكمبيوتر الأدمن (احتياطي): مسح QR، بحث تلقائي، أو إدخال العنوان.
 class PairingScreen extends ConsumerStatefulWidget {
   const PairingScreen({super.key});
 
@@ -30,6 +30,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
     setState(() => _busy = true);
     try {
       await ref.read(sessionProvider).pair(s);
+      if (mounted && Navigator.canPop(context)) Navigator.pop(context);
     } on ApiException catch (e) {
       if (mounted) showMsg(context, e.message, error: true);
     } finally {
@@ -60,6 +61,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
+      appBar: AppBar(title: const Text('الاتصال بالسيرفر')),
       body: SafeArea(
         child: ListView(padding: const EdgeInsets.all(24), children: [
           const SizedBox(height: 24),

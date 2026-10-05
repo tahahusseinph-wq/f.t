@@ -6,7 +6,6 @@ import 'core/storage.dart';
 import 'core/theme.dart';
 import 'screens/home_shell.dart';
 import 'screens/login_screen.dart';
-import 'screens/pairing_screen.dart';
 import 'state/session.dart';
 
 Future<void> main() async {
@@ -35,8 +34,6 @@ class _FtAppState extends ConsumerState<FtApp> {
     final Widget home;
     if (!session.ready) {
       home = const _Splash();
-    } else if (!session.paired) {
-      home = const PairingScreen();
     } else if (!session.loggedIn) {
       home = const LoginScreen();
     } else {

@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/api.dart';
 import '../core/storage.dart';
 import '../state/session.dart';
-import '../widgets/common.dart';
+import 'pairing_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -19,16 +19,45 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _busy = false;
   bool _hide = true;
   String? _error;
+  bool _searching = false;
+
+  static const _notFound = 'تعذر العثور على السيرفر. تأكد أن الموبايل على نفس الواي فاي وأن برنامج الأدمن مفتوح، أو اتصل يدوياً من الأسفل.';
+
+  @override
+  void initState() {
+    super.initState();
+    if (!ref.read(sessionProvider).paired) _find();
+  }
+
+  /// بحث تلقائي عن السيرفر بدون أي تدخل من المستخدم.
+  Future<bool> _find() async {
+    setState(() => _searching = true);
+    final ok = await ref.read(sessionProvider).autoConnect();
+    if (mounted) setState(() => _searching = false);
+    return ok;
+  }
 
   Future<void> _login() async {
+    final session = ref.read(sessionProvider);
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      await ref.read(sessionProvider).login(_user.text.trim(), _pass.text, 'Android');
+      if (!session.paired && !await _find()) {
+        setState(() => _error = _notFound);
+        return;
+      }
+      try {
+        await session.login(_user.text.trim(), _pass.text, 'Android');
+      } on ApiException catch (e) {
+        // قد يكون عنوان الكمبيوتر تغيّر: نبحث من جديد ونعيد المحاولة مرة واحدة
+        if (!e.offline) rethrow;
+        if (!await _find()) throw ApiException(_notFound, offline: true);
+        await session.login(_user.text.trim(), _pass.text, 'Android');
+      }
     } on ApiException catch (e) {
-      setState(() => _error = e.message);
+      if (mounted) setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -47,6 +76,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           const Text('تسجيل الدخول', textAlign: TextAlign.center, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
           Text(session.server?.name.isNotEmpty == true ? session.server!.name : 'مجموعة فاروق الطعمة التجارية',
               textAlign: TextAlign.center, style: TextStyle(color: scheme.outline)),
+          if (_searching)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text('جارِ البحث عن السيرفر في الشبكة...', textAlign: TextAlign.center, style: TextStyle(color: scheme.outline, fontSize: 12)),
+            ),
           const SizedBox(height: 28),
           TextField(
             controller: _user,
@@ -73,13 +107,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           ),
           const SizedBox(height: 12),
           TextButton.icon(
-            onPressed: () async {
-              if (await confirmDialog(context, 'إلغاء ربط هذا الكمبيوتر وربط سيرفر آخر؟')) {
-                await ref.read(sessionProvider).unpair();
-              }
-            },
-            icon: const Icon(Icons.link_off, size: 18),
-            label: Text('متصل بـ ${session.server?.primaryHost ?? ''} — تغيير'),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PairingScreen())),
+            icon: const Icon(Icons.settings_ethernet, size: 18),
+            label: Text(session.paired ? 'متصل بـ ${session.server?.primaryHost ?? ''} — تغيير' : 'اتصال يدوي بالسيرفر'),
           ),
         ]),
       ),
