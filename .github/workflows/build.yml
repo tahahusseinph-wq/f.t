@@ -4,6 +4,8 @@ on:
   push:
     branches: ["**"]
     tags: ["v*"]
+    paths-ignore:
+      - "تطبيقات/**"
   pull_request:
   workflow_dispatch:
 
@@ -62,10 +64,48 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements-dev.txt
       - run: pyinstaller --noconfirm ft_trading.spec
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer\FaroukToumma.iss
       - uses: actions/upload-artifact@v4
         with:
           name: FaroukToumma-windows
           path: desktop/dist/FaroukToumma
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FaroukToumma-setup
+          path: desktop/installer/Output/FaroukToumma-Setup.exe
+
+  publish:
+    # يضع ملفات التثبيت الجاهزة في مجلد «تطبيقات» داخل المستودع
+    if: github.event_name == 'push' && github.ref_type == 'branch'
+    needs: [mobile, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: _artifacts
+      - name: Copy into تطبيقات
+        run: |
+          mkdir -p "تطبيقات/ويندوز" "تطبيقات/اندرويد"
+          cp _artifacts/FaroukToumma-setup/FaroukToumma-Setup.exe "تطبيقات/ويندوز/FaroukToumma-Setup.exe"
+          cp _artifacts/FaroukToumma-android/app-release.apk "تطبيقات/اندرويد/FaroukToumma.apk"
+          rm -rf _artifacts
+          ls -la تطبيقات/*
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "تطبيقات"
+          git diff --cached --quiet && exit 0
+          git commit -m "تحديث ملفات التثبيت (${GITHUB_SHA::7}) [skip ci]"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -75,9 +115,9 @@ jobs:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
-      - run: cd FaroukToumma-windows && zip -qr ../FaroukToumma-windows.zip . && cd .. && mv FaroukToumma-android/app-release.apk FaroukToumma.apk
+      - run: mv FaroukToumma-setup/FaroukToumma-Setup.exe . && mv FaroukToumma-android/app-release.apk FaroukToumma.apk
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            FaroukToumma-windows.zip
+            FaroukToumma-Setup.exe
             FaroukToumma.apk
