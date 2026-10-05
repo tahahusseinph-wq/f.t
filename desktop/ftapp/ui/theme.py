@@ -73,7 +73,9 @@ QToolTip {{ background: {t['surface']}; color: {t['text']}; border: 1px solid {t
              padding: 9px 14px; text-align: right; font-size: 10pt; }}
 #navButton:hover {{ background: {t['sidebar_hover']}; color: #FFFFFF; }}
 #navButton:checked {{ background: {t['sidebar_active']}; color: #FFFFFF; font-weight: bold; }}
-#navSection {{ color: #5F7186; font-size: 8pt; padding: 10px 14px 2px 14px; }}
+#navSectionFirst {{ color: #6F8196; font-size: 8pt; font-weight: bold; padding: 4px 14px 4px 14px; }}
+#crumb {{ color: {t['muted']}; font-size: 10pt; font-weight: bold; }}
+#navSection {{ color: #6F8196; font-size: 8pt; font-weight: bold; padding: 14px 14px 4px 14px; border-top: 1px solid #1A2430; margin-top: 6px; }}
 
 #topbar {{ background: {t['surface']}; border-bottom: 1px solid {t['border']}; }}
 #pageTitle {{ font-size: {13 if compact() else 15}pt; font-weight: bold; }}

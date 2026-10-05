@@ -36,17 +36,17 @@ def page_specs() -> list[PageSpec]:
         PageSpec("dashboard", "لوحة التحكم", "home", dashboard_page.DashboardPage, "dashboard.view", "الرئيسية"),
         PageSpec("notifications", "الإشعارات", "bell", notifications_page.NotificationsPage, None, "الرئيسية"),
         PageSpec("ai", "المساعد الذكي", "sparkles", ai_page.AIPage, "ai.use", "الرئيسية"),
-        PageSpec("products", "المنتجات", "box", products_page.ProductsPage, "products.view", "البضاعة"),
-        PageSpec("categories", "الأقسام والخانات", "layers", categories_page.CategoriesPage, "categories.manage", "البضاعة"),
-        PageSpec("inventory", "المخزون", "warehouse", inventory_page.InventoryPage, "inventory.view", "البضاعة"),
-        PageSpec("purchases", "المشتريات", "truck", purchases_page.PurchasesPage, "purchases.manage", "البضاعة"),
         PageSpec("pos", "نقطة البيع", "cart", pos_page.POSPage, "sales.create", "المبيعات"),
         PageSpec("invoices", "الفواتير", "receipt", invoices_page.InvoicesPage, "sales.create", "المبيعات"),
         PageSpec("customers", "الزبائن", "users", customers_page.CustomersPage, "customers.manage", "المبيعات"),
-        PageSpec("finance", "المالية", "wallet", finance_page.FinancePage, "shifts.manage", "الإدارة"),
-        PageSpec("reports", "التقارير", "bar", reports_page.ReportsPage, "reports.view", "الإدارة"),
-        PageSpec("users", "المستخدمون", "user", users_page.UsersPage, "users.manage", "الإدارة"),
-        PageSpec("settings", "الإعدادات", "settings", settings_page.SettingsPage, "settings.manage", "الإدارة"),
+        PageSpec("products", "المنتجات", "box", products_page.ProductsPage, "products.view", "المخزون والمشتريات"),
+        PageSpec("categories", "الأقسام والخانات", "layers", categories_page.CategoriesPage, "categories.manage", "المخزون والمشتريات"),
+        PageSpec("inventory", "المخزون", "warehouse", inventory_page.InventoryPage, "inventory.view", "المخزون والمشتريات"),
+        PageSpec("purchases", "المشتريات", "truck", purchases_page.PurchasesPage, "purchases.manage", "المخزون والمشتريات"),
+        PageSpec("finance", "المالية والورديات", "wallet", finance_page.FinancePage, "shifts.manage", "المالية والتقارير"),
+        PageSpec("reports", "التقارير", "bar", reports_page.ReportsPage, "reports.view", "المالية والتقارير"),
+        PageSpec("users", "المستخدمون", "user", users_page.UsersPage, "users.manage", "النظام"),
+        PageSpec("settings", "الإعدادات", "settings", settings_page.SettingsPage, "settings.manage", "النظام"),
     ]
 
 
@@ -205,9 +205,10 @@ class MainWindow(QMainWindow):
         self._bell_timer.start(60_000)
         self._update_bell()
         self._update_server_status()
-        first = self.visible_specs[0].key if self.visible_specs else None
-        if first:
-            self.navigate("dashboard" if "dashboard" in [s.key for s in self.visible_specs] else first)
+        keys = [s.key for s in self.visible_specs]
+        start = next((k for k in ("dashboard", "pos") if k in keys), keys[0] if keys else None)
+        if start:
+            self.navigate(start)
 
     # ---------------- البناء ----------------
     def _build_sidebar(self) -> QWidget:
@@ -245,7 +246,7 @@ class MainWindow(QMainWindow):
             if spec.section != section:
                 section = spec.section
                 lbl = QLabel(tr(section))
-                lbl.setObjectName("navSection")
+                lbl.setObjectName("navSection" if nav.count() else "navSectionFirst")
                 nav.addWidget(lbl)
             btn = QPushButton(f"  {tr(spec.title)}")
             btn.setObjectName("navButton")
@@ -291,6 +292,10 @@ class MainWindow(QMainWindow):
         bar.setFixedHeight(60)
         lay = QHBoxLayout(bar)
         lay.setContentsMargins(20, 8, 20, 8)
+        self.crumb = QLabel("")
+        self.crumb.setObjectName("crumb")
+        lay.addWidget(self.crumb)
+        lay.addSpacing(16)
         search = QPushButton(f"  {tr('بحث شامل... (Ctrl+K)')}")
         search.setIcon(icons.icon("search"))
         search.setMinimumWidth(200 if theme.compact() else 360)
@@ -345,6 +350,7 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(getattr(page, "_wrapper", page))
         if key in self.nav_buttons:
             self.nav_buttons[key].setChecked(True)
+        self.crumb.setText(f"{tr(spec.section)}  ›  {tr(spec.title)}")
         if payload is not None and hasattr(page, "open_item"):
             QTimer.singleShot(0, lambda: page.open_item(payload))
 
