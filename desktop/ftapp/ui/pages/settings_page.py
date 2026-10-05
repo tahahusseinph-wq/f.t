@@ -1,4 +1,4 @@
-"""الإعدادات: المنشأة، عام، الطباعة، الواجهة، السيرفر، الذكاء الاصطناعي، تيليغرام، النسخ الاحتياطي، التحديثات."""
+"""الإعدادات: المنشأة، عام، الطباعة، الواجهة، السيرفر، الذكاء الاصطناعي، النسخ الاحتياطي، التحديثات."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBo
 from ftapp import VERSION
 from ftapp.core.paths import data_dir, sub_dir
 from ftapp.services import (audit, auth_service, backup_service, gemini_service, secrets_service, settings_service,
-                            telegram_service, update_service)
+                            update_service)
 from ftapp.ui import icons, theme
 from ftapp.ui.context import ctx
 from ftapp.ui.dialogs.auth_dialogs import password_field
@@ -61,7 +61,6 @@ class SettingsPage(Page):
         self._printing_ui()
         self._server()
         self._ai()
-        self._telegram()
         self._backup()
         self._updates_security()
         self.col.addStretch(1)
@@ -171,31 +170,6 @@ class SettingsPage(Page):
         card.add(muted("احصل على مفتاح مجاني من aistudio.google.com. المفتاح يُحفظ مشفراً على هذا الجهاز فقط."))
         self.col.addWidget(card)
 
-    def _telegram(self) -> None:
-        card = Card("بوت تيليغرام (تنبيهات وتقرير يومي)", icon_name="send")
-        f = _form(card)
-        self.tg_enabled = QCheckBox("تفعيل")
-        self.tg_token = password_field("123456:ABC...")
-        self.tg_token.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
-        self.tg_chat = QLineEdit()
-        self.tg_chat.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
-        self.tg_daily = QCheckBox("إرسال تقرير يومي بالمبيعات")
-        self.tg_hour = int_spin(0, 23)
-        self.tg_hour.setSuffix(":00")
-        self.tg_low = QCheckBox("تنبيهات نقص المخزون والصلاحية")
-        self.tg_large = QCheckBox("تنبيه الفواتير الكبيرة")
-        f.addRow("", self.tg_enabled)
-        f.addRow("رمز البوت", self.tg_token)
-        f.addRow("معرّف المحادثة", _hrow(self.tg_chat, button("اكتشاف تلقائي", "search", on_click=self._tg_discover)))
-        f.addRow("", self.tg_daily)
-        f.addRow("وقت التقرير", self.tg_hour)
-        f.addRow("", self.tg_low)
-        f.addRow("", self.tg_large)
-        f.addRow("", _hrow(button("إرسال رسالة تجريبية", "send", "soft", on_click=self._tg_test),
-                           button("إرسال تقرير اليوم الآن", on_click=self._tg_report), "stretch"))
-        card.add(muted("أنشئ بوتاً من @BotFather في تيليغرام وانسخ الرمز هنا، ثم أرسل /start للبوت واضغط «اكتشاف تلقائي»."))
-        self.col.addWidget(card)
-
     def _backup(self) -> None:
         card = Card("النسخ الاحتياطي", icon_name="database")
         f = _form(card)
@@ -272,13 +246,6 @@ class SettingsPage(Page):
             ai = g("gemini")
             self.ai_enabled.setChecked(ai.get("enabled", True))
             self.ai_model.setCurrentText(ai.get("model", gemini_service.DEFAULT_MODEL))
-            tg = g("telegram")
-            self.tg_enabled.setChecked(tg.get("enabled", False))
-            self.tg_chat.setText(tg.get("chat_id", ""))
-            self.tg_daily.setChecked(tg.get("daily_report", True))
-            self.tg_hour.setValue(int(tg.get("report_hour", 21)))
-            self.tg_low.setChecked(tg.get("notify_low_stock", True))
-            self.tg_large.setChecked(tg.get("notify_large_invoice", True))
             b = g("backup")
             self.b_auto.setChecked(b.get("auto", True))
             self.b_keep.setValue(int(b.get("keep", 14)))
@@ -288,7 +255,6 @@ class SettingsPage(Page):
             self.up_url.setText(up.get("check_url", ""))
             self.up_auto.setChecked(up.get("auto_check", True))
         self.ai_key.setText(secrets_service.gemini_key() or "")
-        self.tg_token.setText(secrets_service.telegram_token() or "")
         self.b_password.setText(secrets_service.backup_password() or "")
         self._load_backups()
 
@@ -322,15 +288,11 @@ class SettingsPage(Page):
                 idle_lock_minutes=self.u_idle.value())
             upd("server", enabled=self.s_enabled.isChecked(), port=self.s_port.value(), lan_only=self.s_lan.isChecked())
             upd("gemini", enabled=self.ai_enabled.isChecked(), model=self.ai_model.currentText().strip())
-            upd("telegram", enabled=self.tg_enabled.isChecked(), chat_id=self.tg_chat.text().strip(),
-                daily_report=self.tg_daily.isChecked(), report_hour=self.tg_hour.value(),
-                notify_low_stock=self.tg_low.isChecked(), notify_large_invoice=self.tg_large.isChecked())
             upd("backup", auto=self.b_auto.isChecked(), keep=self.b_keep.value(), encrypt=self.b_encrypt.isChecked(),
                 cloud_folder=self.b_cloud.text().strip())
             upd("updates", check_url=self.up_url.text().strip(), auto_check=self.up_auto.isChecked())
             audit.log(s, u, "settings_changed", "settings")
         secrets_service.set_gemini_key(self.ai_key.text())
-        secrets_service.set_telegram_token(self.tg_token.text())
         secrets_service.set_backup_password(self.b_password.text() if self.b_encrypt.isChecked() else None)
         if self.u_theme.currentData() != theme.mode():
             theme.apply(QApplication.instance(), self.u_theme.currentData())
@@ -366,25 +328,6 @@ class SettingsPage(Page):
         run_async(lambda: gemini_service.test_connection(key, model),
                   lambda _r: self.ai_status.setText("✓ يعمل بنجاح"),
                   lambda m: self.ai_status.setText(f"✗ {m}"))
-
-    def _tg_discover(self) -> None:
-        token = self.tg_token.text().strip()
-        run_async(lambda: telegram_service.discover_chat_id(token),
-                  lambda cid: (self.tg_chat.setText(cid) if cid else error(self, "لم يتم العثور على محادثة. أرسل /start للبوت أولاً")),
-                  lambda m: error(self, m))
-
-    def _tg_test(self) -> None:
-        token, chat = self.tg_token.text().strip(), self.tg_chat.text().strip()
-        run_async(lambda: telegram_service.send_message("✅ تم ربط بوت مجموعة فاروق الطعمة التجارية بنجاح", chat, token),
-                  lambda _r: Toast.show_message(self, "تم إرسال الرسالة", "success"), lambda m: error(self, m))
-
-    def _tg_report(self) -> None:
-        from ftapp.services import report_service
-        with ctx.session() as (s, _):
-            text = report_service.daily_summary_text(s)
-        token, chat = self.tg_token.text().strip(), self.tg_chat.text().strip()
-        run_async(lambda: telegram_service.send_message(text, chat, token),
-                  lambda _r: Toast.show_message(self, "تم إرسال التقرير", "success"), lambda m: error(self, m))
 
     def _pick_cloud(self) -> None:
         d = QFileDialog.getExistingDirectory(self, "مجلد النسخ السحابية")

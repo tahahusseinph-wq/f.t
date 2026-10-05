@@ -25,9 +25,9 @@ def _excepthook(exc_type, exc, tb) -> None:
 
 
 def start_background_services() -> None:
-    """السيرفر، المهام الدورية، وبوت تيليغرام (مرة واحدة لكل تشغيل)."""
+    """السيرفر والمهام الدورية (مرة واحدة لكل تشغيل)."""
     from ftapp.api.server import server as api_server
-    from ftapp.services import auth_service, scheduler, settings_service, telegram_service
+    from ftapp.services import auth_service, scheduler, settings_service
 
     with db.session_scope() as s:
         cfg = settings_service.get(s, "server")
@@ -38,20 +38,19 @@ def start_background_services() -> None:
         if api_server.error:
             log.warning("API server: %s", api_server.error)
 
-    def tg_config() -> dict:
-        with db.session_scope() as s2:
-            return settings_service.get(s2, "telegram")
+    from ftapp.core import secrets_store
+    try:  # حذف رمز بوت تيليغرام القديم (الميزة أُزيلت نهائياً)
+        secrets_store.set_secret("telegram_bot_token", None)
+    except Exception:
+        log.debug("legacy telegram secret cleanup skipped", exc_info=True)
 
-    global _scheduler, _notifier
+    global _scheduler
     if _scheduler is None:
         _scheduler = scheduler.Scheduler()
         _scheduler.start()
-    if _notifier is None:
-        _notifier = telegram_service.TelegramNotifier(tg_config)
 
 
 _scheduler = None
-_notifier = None
 
 
 def main() -> int:

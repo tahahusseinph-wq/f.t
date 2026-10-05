@@ -5,7 +5,7 @@ import pytest
 from openpyxl import load_workbook
 
 from ftapp.services import (backup_service, catalog_service, excel_service, gemini_service, pdf_service,
-                            sales_service, telegram_service, update_service)
+                            sales_service, update_service)
 from ftapp.services.errors import ValidationError
 
 
@@ -112,10 +112,3 @@ def test_update_check(monkeypatch):
     monkeypatch.setattr(update_service.httpx, "get", fake_get)
     info = update_service.check("https://api.github.com/repos/o/r/releases/latest")
     assert info.is_newer and info.apk_url.endswith(".apk")
-
-
-def test_telegram_errors(monkeypatch):
-    monkeypatch.setattr(telegram_service.httpx, "post",
-                        lambda *a, **k: SimpleNamespace(json=lambda: {"ok": False, "description": "Unauthorized"}))
-    with pytest.raises(telegram_service.TelegramError, match="غير صحيح"):
-        telegram_service.send_message("hi", "1", token="bad")

@@ -63,8 +63,6 @@ DEFAULTS: dict[str, Any] = {
     "server_id": "",
     "jwt_secret": "",
     "gemini": {"model": "gemini-2.5-flash", "enabled": True},
-    "telegram": {"enabled": False, "chat_id": "", "daily_report": True, "report_hour": 21,
-                 "notify_low_stock": True, "notify_large_invoice": True},
     "backup": {"auto": True, "keep": 14, "encrypt": False, "cloud_folder": "", "last": ""},
     "ui": {"language": "ar", "theme": "light", "idle_lock_minutes": 15},
     "printing": {"paper": "A4", "show_logo": True, "copies": 1, "printer": ""},

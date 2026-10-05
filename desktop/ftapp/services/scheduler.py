@@ -17,7 +17,6 @@ class Scheduler:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._tick = 0
-        self._last_report_day: date | None = None
         self._last_update_check: date | None = None
 
     def start(self) -> None:
@@ -39,7 +38,6 @@ class Scheduler:
                 self._safe(self.scan_notifications)
             if self._tick % 30 == 0:
                 self._safe(self.backup)
-            self._safe(self.daily_report)
             self._safe(self.check_updates)
 
     def _safe(self, fn) -> None:
@@ -61,26 +59,6 @@ class Scheduler:
 
         with session_scope() as s:
             backup_service.auto_backup_if_due(s)
-
-    def daily_report(self) -> None:
-        from ftapp.services import report_service, telegram_service
-
-        with session_scope() as s:
-            cfg = settings.get(s, "telegram")
-            if not (cfg.get("enabled") and cfg.get("daily_report") and cfg.get("chat_id")):
-                return
-            now = datetime.now()
-            if now.hour < int(cfg.get("report_hour", 21)) or self._last_report_day == now.date():
-                return
-            sent = cfg.get("last_report_day")
-            if sent == now.date().isoformat():
-                self._last_report_day = now.date()
-                return
-            text = report_service.daily_summary_text(s)
-            telegram_service.send_message(text, cfg["chat_id"])
-            cfg["last_report_day"] = now.date().isoformat()
-            settings.set(s, "telegram", cfg)
-            self._last_report_day = now.date()
 
     def check_updates(self) -> None:
         from ftapp.services import notification_service, update_service
