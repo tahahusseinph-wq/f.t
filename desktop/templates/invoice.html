@@ -18,10 +18,13 @@
 <body dir="rtl">
 {% if thermal %}
 <table width="100%" cellspacing="0" cellpadding="0">
-  {% if show_logo %}<tr><td align="center"><img src="logo" width="{{ logo_size }}" height="{{ logo_size }}"></td></tr>{% endif %}
+  {% if show_logo %}<tr><td align="center"><img src="logo" width="{{ logo_w }}" height="{{ logo_h }}"></td></tr>{% endif %}
   <tr><td align="center" class="title">{{ company.name }}</td></tr>
   {% if company.address %}<tr><td align="center" class="sub">{{ company.address }}</td></tr>{% endif %}
   {% if company.phone %}<tr><td align="center" class="sub">هاتف: {{ company.phone }}</td></tr>{% endif %}
+  {% if company.email %}<tr><td align="center" class="sub">{{ company.email }}</td></tr>{% endif %}
+  {% if company.tax_number %}<tr><td align="center" class="sub">الرقم الضريبي: {{ company.tax_number }}</td></tr>{% endif %}
+  {% for ln in details %}<tr><td align="center" class="sub">{{ ln }}</td></tr>{% endfor %}
   <tr><td align="center"><b>{{ doc_title }}</b></td></tr>
 </table>
 <hr>
@@ -42,7 +45,7 @@
 <hr>
 {% else %}
 <table width="100%" cellspacing="0" cellpadding="2">
-  {% if show_logo %}<tr><td align="center"><img src="logo" width="{{ logo_size }}" height="{{ logo_size }}"></td></tr>{% endif %}
+  {% if show_logo %}<tr><td align="center"><img src="logo" width="{{ logo_w }}" height="{{ logo_h }}"></td></tr>{% endif %}
   <tr><td align="center"><span class="title">{{ company.name }}</span>
       {% if company.name_en %}<br><span class="sub">{{ company.name_en }}</span>{% endif %}</td></tr>
   <tr><td align="center">
@@ -50,6 +53,7 @@
       {% if company.phone %}<span class="sub">هاتف: {{ company.phone }}</span>{% endif %}
       {% if company.email %}<span class="sub"> — {{ company.email }}</span>{% endif %}
       {% if company.tax_number %}<br><span class="sub">الرقم الضريبي: {{ company.tax_number }}</span>{% endif %}
+      {% for ln in details %}<br><span class="sub">{{ ln }}</span>{% endfor %}
   </td></tr>
 </table>
 <table width="100%" cellspacing="0" cellpadding="5">
@@ -66,6 +70,7 @@
     <td width="50%">الزبون: <b>{{ inv.customer_name or 'زبون نقدي' }}</b><br>
         {% if inv.customer_phone %}الهاتف: {{ inv.customer_phone }}<br>{% endif %}
         طريقة الدفع: {{ payment_label }}<br>
+        {% if inv.payment_method == 'shamcash' and shamcash %}حساب شام كاش: {{ shamcash }}<br>{% endif %}
         العملة: {{ currency.name }}
     </td>
   </tr>
@@ -98,8 +103,11 @@
 {% if thermal %}
 {{ totals_table() }}
 {% if inv.notes %}<p class="sub">ملاحظات: {{ inv.notes }}</p>{% endif %}
+{% if shamcash %}<p class="sub" align="center">الدفع عبر شام كاش: <b>{{ shamcash }}</b></p>{% endif %}
 <table width="100%" cellspacing="0" cellpadding="4">
   <tr><td align="center"><img src="qr" width="{{ qr_size }}" height="{{ qr_size }}"></td></tr>
+  {% if facebook %}<tr><td align="center"><img src="fb" width="{{ qr_size }}" height="{{ qr_size }}"><br>
+      <span class="sub">تابعونا على فيسبوك</span></td></tr>{% endif %}
   <tr><td align="center" class="sub">{{ company.invoice_footer }}</td></tr>
   {% if status_note %}<tr><td align="center" class="danger">{{ status_note }}</td></tr>{% endif %}
 </table>
@@ -108,7 +116,14 @@
   <tr>
     <td width="55%" valign="top">
       {% if inv.notes %}<p class="sub">ملاحظات: {{ inv.notes }}</p>{% endif %}
-      <img src="qr" width="{{ qr_size }}" height="{{ qr_size }}"><br>
+      {% if shamcash %}<p class="sub">الدفع عبر شام كاش: <b>{{ shamcash }}</b></p>{% endif %}
+      <table cellspacing="0" cellpadding="2"><tr>
+        <td align="center" valign="top"><img src="qr" width="{{ qr_size }}" height="{{ qr_size }}"><br>
+            <span class="muted">رمز الفاتورة</span></td>
+        {% if facebook %}<td width="12"></td>
+        <td align="center" valign="top"><img src="fb" width="{{ qr_size }}" height="{{ qr_size }}"><br>
+            <span class="muted">تابعونا على فيسبوك</span></td>{% endif %}
+      </tr></table>
       <span class="sub">{{ company.invoice_footer }}</span>
       {% if status_note %}<br><span class="danger">{{ status_note }}</span>{% endif %}
     </td>

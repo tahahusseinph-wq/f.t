@@ -7,7 +7,7 @@ from PySide6.QtCore import QUrl, Qt
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
                                QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-                               QScrollArea, QVBoxLayout, QWidget)
+                               QPlainTextEdit, QScrollArea, QVBoxLayout, QWidget)
 
 from ftapp import VERSION
 from ftapp.core.paths import data_dir, sub_dir
@@ -78,6 +78,14 @@ class SettingsPage(Page):
         self.c_email = QLineEdit()
         self.c_tax = QLineEdit()
         self.c_footer = QLineEdit()
+        self.c_details = QPlainTextEdit()
+        self.c_details.setPlaceholderText("مثال: سجل تجاري رقم ...\nواتساب: 09xxxxxxxx\nأوقات الدوام: 9 صباحاً - 9 مساءً")
+        self.c_details.setFixedHeight(80)
+        self.c_facebook = QLineEdit()
+        self.c_facebook.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        self.c_facebook.setPlaceholderText("https://www.facebook.com/YourPage  أو اسم الصفحة فقط")
+        self.c_shamcash = QLineEdit()
+        self.c_shamcash.setPlaceholderText("رقم أو اسم حساب شام كاش لاستلام الدفعات")
         self.logo = logo_label(56)
         f.addRow("الاسم", self.c_name)
         f.addRow("الاسم بالإنكليزية", self.c_name_en)
@@ -86,6 +94,9 @@ class SettingsPage(Page):
         f.addRow("البريد", self.c_email)
         f.addRow("الرقم الضريبي", self.c_tax)
         f.addRow("عبارة أسفل الفاتورة", self.c_footer)
+        f.addRow("تفاصيل إضافية على الفاتورة", self.c_details)
+        f.addRow("صفحة الفيسبوك (QR)", self.c_facebook)
+        f.addRow("حساب شام كاش", self.c_shamcash)
         f.addRow("الشعار", _hrow(self.logo, button("تغيير", "image", on_click=self._logo),
                                  button("الشعار الأصلي", on_click=self._logo_reset), "stretch"))
         self.col.addWidget(card)
@@ -223,6 +234,9 @@ class SettingsPage(Page):
             self.c_email.setText(c.get("email", ""))
             self.c_tax.setText(c.get("tax_number", ""))
             self.c_footer.setText(c.get("invoice_footer", ""))
+            self.c_details.setPlainText(c.get("invoice_details", ""))
+            self.c_facebook.setText(c.get("facebook_url", ""))
+            self.c_shamcash.setText(c.get("shamcash_account", ""))
             self.g_min.setValue(float(g("default_min_stock") or 0))
             self.g_slow.setValue(int(g("slow_moving_days")))
             self.g_expiry.setValue(int(g("expiry_warning_days")))
@@ -274,7 +288,9 @@ class SettingsPage(Page):
             upd = lambda k, **kw: settings_service.update(s, k, **kw)  # noqa: E731
             upd("company", name=self.c_name.text().strip(), name_en=self.c_name_en.text().strip(),
                 address=self.c_address.text(), phone=self.c_phone.text(), email=self.c_email.text(),
-                tax_number=self.c_tax.text(), invoice_footer=self.c_footer.text())
+                tax_number=self.c_tax.text(), invoice_footer=self.c_footer.text(),
+                invoice_details=self.c_details.toPlainText().strip(), facebook_url=self.c_facebook.text().strip(),
+                shamcash_account=self.c_shamcash.text().strip())
             settings_service.set(s, "default_min_stock", self.g_min.value())
             settings_service.set(s, "slow_moving_days", self.g_slow.value())
             settings_service.set(s, "expiry_warning_days", self.g_expiry.value())

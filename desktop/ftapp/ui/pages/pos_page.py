@@ -111,8 +111,15 @@ class POSPage(Page):
         self.currency.currentIndexChanged.connect(self._recalc)
         grid.addWidget(QLabel("شريحة السعر"), 0, 0)
         grid.addWidget(self.tier, 0, 1)
+        self.rate_btn = button("", "edit", on_click=self._edit_rate, tooltip="تعديل سعر صرف العملة")
+        self.rate_btn.setEnabled(ctx.can("settings.manage"))
+        cur_row = QHBoxLayout()
+        cur_row.addWidget(self.currency, 1)
+        cur_row.addWidget(self.rate_btn)
         grid.addWidget(QLabel("العملة"), 1, 0)
-        grid.addWidget(self.currency, 1, 1)
+        grid.addLayout(cur_row, 1, 1)
+        self.l_rate = muted("")
+        grid.addWidget(self.l_rate, 2, 0, 1, 2)
         panel.body.addLayout(grid)
         panel.add(self._sep())
 
@@ -161,6 +168,11 @@ class POSPage(Page):
         prow.addWidget(self.paid, 0, 1)
         prow.addWidget(self.l_change, 1, 0, 1, 2)
         panel.body.addLayout(prow)
+        self.sham_ref = QLineEdit()
+        self.sham_ref.setPlaceholderText("رقم عملية شام كاش (اختياري)")
+        self.sham_ref.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        self.sham_ref.hide()
+        panel.add(self.sham_ref)
         self.notes = QLineEdit()
         self.notes.setPlaceholderText("ملاحظات على الفاتورة")
         panel.add(self.notes)
@@ -312,7 +324,14 @@ class POSPage(Page):
             lines=lines, customer_id=self.customer.currentData(), tier_id=self.tier.currentData(),
             discount=currency_service.to_base(self.discount.value(), cur), payment_method=method,
             paid=None if full else currency_service.to_base(self.paid.value(), cur),
-            currency_code=cur.code, notes=self.notes.text().strip())
+            currency_code=cur.code, notes=self._notes(method))
+
+    def _notes(self, method: str) -> str:
+        notes = self.notes.text().strip()
+        ref = self.sham_ref.text().strip()
+        if method == "shamcash" and ref:
+            notes = f"{notes}\nرقم عملية شام كاش: {ref}".strip()
+        return notes
 
     def _recalc(self) -> None:
         self.empty_hint.setVisible(not self.cart)
@@ -367,6 +386,8 @@ class POSPage(Page):
         self.total_display = conv(calc["total"])
         self.l_total.setText(f(calc["total"]))
         self.l_alt.setText(fmt_money(calc["total"], base.symbol, base.decimals) if cur.code != base.code else "")
+        self.l_rate.setText(f"سعر الصرف: 1 {base.code} = {cur.rate:g} {cur.symbol}" if cur.code != base.code else "")
+        self.rate_btn.setVisible(cur.code != base.code)
         self.pay_btn.setEnabled(bool(self.cart))
         self._update_change()
 
@@ -390,6 +411,7 @@ class POSPage(Page):
         if self.p_credit.isChecked() or self.p_sham.isChecked():
             self.paid.setValue(0)
         self.paid.setEnabled(not (self.p_credit.isChecked() or self.p_sham.isChecked()))
+        self.sham_ref.setVisible(self.p_sham.isChecked())
         self._update_change()
 
     def _update_change(self) -> None:
@@ -414,6 +436,28 @@ class POSPage(Page):
             rest = max(0.0, total - (paid if self.p_partial.isChecked() else 0))
             self.l_change.setText(f"يُسجل ديناً على الزبون: {fmt_money(rest, cur.symbol, cur.decimals)}")
             self.l_change.setStyleSheet(f"color: {tokens()['warning']}; font-weight: bold;")
+
+    def _edit_rate(self) -> None:
+        """تعديل سعر صرف العملة المختارة مباشرة من شاشة البيع (يُحفظ في سجل أسعار الصرف)."""
+        with ctx.session() as (s, _):
+            cur = self._cur(s)
+            base = currency_service.base(s)
+            if cur.is_base:
+                return
+            code, name, symbol, rate, decimals = cur.code, cur.name, cur.symbol, cur.rate, cur.decimals
+            base_code = base.code
+        value, ok = QInputDialog.getDouble(self, "سعر الصرف", f"كم تساوي 1 {base_code} بـ {name}؟",
+                                           rate, 0.0001, 1e12, 4)
+        if not ok or abs(value - rate) < 1e-9:
+            return
+        try:
+            with ctx.session() as (s, u):
+                currency_service.save_currency(s, u, code, name, symbol, value, decimals)
+        except ServiceError as exc:
+            error(self, str(exc))
+            return
+        Toast.show_message(self, f"تم تعديل سعر الصرف: 1 {base_code} = {value:g} {symbol}", "success")
+        self._recalc()
 
     def _customer_changed(self) -> None:
         cid = self.customer.currentData()
@@ -482,6 +526,7 @@ class POSPage(Page):
         self.discount.setValue(0)
         self.paid.setValue(0)
         self.notes.clear()
+        self.sham_ref.clear()
         self.p_cash.setChecked(True)
         self.customer.setCurrentIndex(0)
         self._recalc()

@@ -49,6 +49,9 @@ DEFAULTS: dict[str, Any] = {
         "email": "",
         "tax_number": "",
         "invoice_footer": "شكراً لتعاملكم معنا",
+        "invoice_details": "",   # نص حر يكتبه المستخدم يظهر أعلى الفاتورة
+        "facebook_url": "",      # صفحة الفيسبوك: تُطبع كرمز QR على الفاتورة
+        "shamcash_account": "",  # رقم/اسم حساب شام كاش لاستلام الدفعات
     },
     "base_currency": "USD",
     "display_currency": "USD",

@@ -5,12 +5,12 @@ from typing import Callable
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import (QComboBox, QFrame, QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QHBoxLayout,
+from PySide6.QtWidgets import (QComboBox, QFrame, QGraphicsOpacityEffect, QHBoxLayout,
                                QLabel, QMessageBox, QPushButton, QSizePolicy, QVBoxLayout, QWidget)
 
 from ftapp.ui import icons
 from ftapp.ui.i18n import tr
-from ftapp.ui.theme import tokens
+from ftapp.ui.theme import clay_shadow, tokens
 
 
 def rgba(hex_color: str, alpha: float) -> str:
@@ -53,12 +53,7 @@ class Card(QFrame):
     def __init__(self, title: str = "", parent: QWidget | None = None, icon_name: str | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("card")
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(18)
-        shadow.setOffset(0, 2)
-        from PySide6.QtGui import QColor
-        shadow.setColor(QColor(13, 27, 42, 18))
-        self.setGraphicsEffect(shadow)
+        clay_shadow(self, blur=30, dy=8, alpha=60)
         self.body = QVBoxLayout(self)
         self.body.setContentsMargins(16, 14, 16, 14)
         self.body.setSpacing(10)
@@ -91,7 +86,7 @@ class KpiCard(Card):
         badge.setFixedSize(44, 44)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         c = color or tokens()["primary"]
-        badge.setStyleSheet(f"background: {rgba(c, 0.13)}; border-radius: 12px;")
+        badge.setStyleSheet(f"background: {rgba(c, 0.13)}; border-radius: 16px;")
         badge.setPixmap(icons.pixmap(icon_name, c, 22))
         row.addWidget(badge)
         col = QVBoxLayout()

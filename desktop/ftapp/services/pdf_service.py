@@ -77,6 +77,29 @@ def _currency(session: Session, inv: Invoice) -> Currency:
     return session.get(Currency, inv.currency_code) or currency_service.base(session)
 
 
+def facebook_link(value: str) -> str:
+    """يقبل رابطاً كاملاً أو اسم الصفحة فقط ويعيد رابطاً صالحاً."""
+    value = (value or "").strip()
+    if not value:
+        return ""
+    if "://" in value:
+        return value
+    if "facebook.com" in value or "fb.com" in value or "fb.me" in value:
+        return "https://" + value.lstrip("/")
+    return "https://www.facebook.com/" + value.lstrip("@/")
+
+
+def _logo_box(height: int) -> tuple[int, int]:
+    """أبعاد اللوغو على الفاتورة مع الحفاظ على نسبته (بدون تمطيط)."""
+    try:
+        img = transparent_logo()
+        ratio = img.width() / img.height() if img.height() else 1
+    except Exception:
+        ratio = 1
+    ratio = max(0.5, min(ratio, 3.5))
+    return int(height * ratio), height
+
+
 def invoice_context(session: Session, inv: Invoice, paper: str = "A4") -> dict[str, Any]:
     cur = _currency(session, inv)
     rate = inv.exchange_rate or 1
@@ -99,11 +122,17 @@ def invoice_context(session: Session, inv: Invoice, paper: str = "A4") -> dict[s
     thermal = paper in ("80mm", "58mm")
     print_cfg = settings.get(session, "printing")
     status_note = "ملغاة" if inv.status == "cancelled" else ""
+    company = settings.get(session, "company")
+    logo_h = 60 if thermal else (70 if paper == "A6" else 95)
+    logo_w, logo_h = _logo_box(logo_h)
     return {
-        "inv": inv, "company": settings.get(session, "company"), "currency": cur, "seller": seller,
+        "inv": inv, "company": company, "currency": cur, "seller": seller,
         "items": items, "doc_title": titles.get(inv.kind, "فاتورة"), "thermal": thermal,
         "fs": _FONT_SIZES.get(paper, 9),
-        "logo_size": 60 if thermal else (70 if paper == "A6" else 95), "qr_size": 75 if thermal else 90,
+        "logo_w": logo_w, "logo_h": logo_h, "qr_size": 75 if thermal else 90,
+        "details": [ln.strip() for ln in (company.get("invoice_details") or "").splitlines() if ln.strip()],
+        "facebook": facebook_link(company.get("facebook_url", "")),
+        "shamcash": (company.get("shamcash_account") or "").strip(),
         "show_logo": print_cfg.get("show_logo", True),
         "payment_label": sales_service.PAYMENT_METHODS.get(inv.payment_method, inv.payment_method),
         "original": inv.original.number if inv.original else "",
@@ -127,6 +156,9 @@ def build_invoice_document(session: Session, inv: Invoice, paper: str = "A4") ->
     doc.addResource(QTextDocument.ResourceType.ImageResource, "logo", transparent_logo())
     qr = QImage.fromData(barcode_service.qr_png(invoice_qr_text(session, inv)))
     doc.addResource(QTextDocument.ResourceType.ImageResource, "qr", qr)
+    fb = facebook_link(settings.get(session, "company").get("facebook_url", ""))
+    if fb:
+        doc.addResource(QTextDocument.ResourceType.ImageResource, "fb", QImage.fromData(barcode_service.qr_png(fb)))
     doc.setHtml(html)
     return doc
 

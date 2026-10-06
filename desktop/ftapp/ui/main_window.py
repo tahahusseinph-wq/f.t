@@ -1,4 +1,4 @@
-"""النافذة الرئيسية: الشريط الجانبي، الشريط العلوي، الصفحات، وخدمات الخلفية."""
+"""النافذة الرئيسية: شريط علوي بالأقسام وصفحاتها، الصفحات، وخدمات الخلفية."""
 from __future__ import annotations
 
 import logging
@@ -7,7 +7,7 @@ from typing import Callable
 from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
-                               QListWidget, QListWidgetItem, QMainWindow, QPushButton, QScrollArea,
+                               QListWidget, QListWidgetItem, QMainWindow, QMenu, QPushButton, QScrollArea, QSizePolicy,
                                QStackedWidget, QVBoxLayout, QWidget)
 
 from ftapp import APP_NAME, APP_NAME_EN
@@ -48,6 +48,10 @@ def page_specs() -> list[PageSpec]:
         PageSpec("users", "المستخدمون", "user", users_page.UsersPage, "users.manage", "النظام"),
         PageSpec("settings", "الإعدادات", "settings", settings_page.SettingsPage, "settings.manage", "النظام"),
     ]
+
+
+SECTION_ICONS = {"الرئيسية": "home", "المبيعات": "cart", "المخزون والمشتريات": "box",
+                 "المالية والتقارير": "wallet", "النظام": "settings"}
 
 
 class IdleWatcher(QObject):
@@ -169,20 +173,20 @@ class MainWindow(QMainWindow):
         self.locked = False
         self.logout_requested = False
 
+        self.section_buttons: dict[str, QPushButton] = {}
+        self.section_last: dict[str, str] = {}
+        self.current_key: str | None = None
+
         central = QWidget()
-        outer = QHBoxLayout(central)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-        outer.addWidget(self._build_sidebar())
-        right = QVBoxLayout()
-        right.setContentsMargins(0, 0, 0, 0)
-        right.setSpacing(0)
-        right.addWidget(self._build_topbar())
+        central.setObjectName("shell")
+        outer = QVBoxLayout(central)
+        small = theme.compact()
+        outer.setContentsMargins(10, 8, 10, 0) if small else outer.setContentsMargins(18, 14, 18, 0)
+        outer.setSpacing(6 if small else 10)
+        outer.addWidget(self._build_topbar())
+        outer.addWidget(self._build_subnav())
         self.stack = QStackedWidget()
-        right.addWidget(self.stack, 1)
-        rw = QWidget()
-        rw.setLayout(right)
-        outer.addWidget(rw, 1)
+        outer.addWidget(self.stack, 1)
         self.setCentralWidget(central)
 
         QShortcut(QKeySequence("Ctrl+K"), self, activated=self.open_palette)
@@ -211,16 +215,27 @@ class MainWindow(QMainWindow):
             self.navigate(start)
 
     # ---------------- البناء ----------------
-    def _build_sidebar(self) -> QWidget:
-        side = QFrame()
-        side.setObjectName("sidebar")
-        side.setFixedWidth(200 if theme.compact() else 238)
-        lay = QVBoxLayout(side)
-        lay.setContentsMargins(12, 16, 12, 12)
-        lay.setSpacing(2)
-        brand = QHBoxLayout()
-        brand.addWidget(logo_label(46))
-        names = QVBoxLayout()
+    def _sections(self) -> list[str]:
+        out: list[str] = []
+        for spec in self.visible_specs:
+            if spec.section not in out:
+                out.append(spec.section)
+        return out
+
+    def _build_topbar(self) -> QWidget:
+        """الشريط العلوي: الشعار، أقسام البرنامج، وأدوات سريعة — بطاقة صلصال واحدة."""
+        small = theme.compact()
+        bar = QFrame()
+        bar.setObjectName("topbar")
+        theme.clay_shadow(bar, blur=34, dy=10, alpha=70)
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(10, 6, 10, 6) if small else lay.setContentsMargins(14, 8, 14, 8)
+        lay.setSpacing(6 if small else 10)
+
+        lay.addWidget(logo_label(34 if small else 42))
+        self.brand_names = QWidget()
+        names = QVBoxLayout(self.brand_names)
+        names.setContentsMargins(0, 0, 0, 0)
         names.setSpacing(0)
         n1 = QLabel("فاروق الطعمة")
         n1.setObjectName("brandName")
@@ -228,93 +243,38 @@ class MainWindow(QMainWindow):
         n2.setObjectName("brandSub")
         names.addWidget(n1)
         names.addWidget(n2)
-        brand.addLayout(names, 1)
-        lay.addLayout(brand)
-        lay.addSpacing(10)
+        lay.addWidget(self.brand_names)
+        lay.addSpacing(6 if small else 14)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        inner = QWidget()
-        nav = QVBoxLayout(inner)
-        nav.setContentsMargins(0, 0, 0, 0)
-        nav.setSpacing(3)
+        # ---- أقسام البرنامج ----
         group = QButtonGroup(self)
         group.setExclusive(True)
-        section = None
-        for spec in self.visible_specs:
-            if spec.section != section:
-                section = spec.section
-                lbl = QLabel(tr(section))
-                lbl.setObjectName("navSection" if nav.count() else "navSectionFirst")
-                nav.addWidget(lbl)
-            btn = QPushButton(f"  {tr(spec.title)}")
-            btn.setObjectName("navButton")
+        for section in self._sections():
+            btn = QPushButton(f" {tr(section)}")
+            btn.setObjectName("sectionPill")
+            btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)  # لا يُقص اسم القسم
             btn.setCheckable(True)
-            btn.setIcon(icons.icon(spec.icon, "#C9D4E0"))
-            btn.setIconSize(QSize(18, 18))
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.clicked.connect(lambda _=False, k=spec.key: self.navigate(k))
+            btn.setIconSize(QSize(17, 17))
+            btn.setProperty("icon_name", SECTION_ICONS.get(section, self._spec(self._first_in(section)).icon))
+            btn.toggled.connect(lambda on, b=btn: self._tint(b, on, "#FFFFFF", theme.tokens()["muted"]))
+            self._tint(btn, False, "#FFFFFF", theme.tokens()["muted"])
+            btn.clicked.connect(lambda _=False, sec=section: self.navigate(self.section_last.get(sec) or self._first_in(sec)))
             group.addButton(btn)
-            nav.addWidget(btn)
-            self.nav_buttons[spec.key] = btn
-        nav.addStretch(1)
-        scroll.setWidget(inner)
-        lay.addWidget(scroll, 1)
-
-        user_box = QFrame()
-        user_box.setStyleSheet("background: #121A23; border-radius: 12px;")
-        ub = QHBoxLayout(user_box)
-        ub.setContentsMargins(10, 8, 6, 8)
-        avatar = QLabel(ctx.display_name[:1] or "؟")
-        avatar.setFixedSize(34, 34)
-        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        avatar.setStyleSheet("background: #1565C0; color: white; border-radius: 17px; font-weight: bold;")
-        ub.addWidget(avatar)
-        info = QVBoxLayout()
-        info.setSpacing(0)
-        nm = QLabel(ctx.display_name)
-        nm.setStyleSheet("color: white; font-weight: bold;")
-        from ftapp.services.permissions import ROLES
-        rl = QLabel(ROLES.get(ctx.role, ctx.role))
-        rl.setStyleSheet("color: #7F93A8; font-size: 8pt;")
-        info.addWidget(nm)
-        info.addWidget(rl)
-        ub.addLayout(info, 1)
-        ub.addWidget(icon_button("lock", tr("قفل الشاشة"), self.lock, "#9FB3C8"))
-        ub.addWidget(icon_button("logout", tr("تسجيل الخروج"), self.logout, "#9FB3C8"))
-        lay.addWidget(user_box)
-        return side
-
-    def _build_topbar(self) -> QWidget:
-        bar = QFrame()
-        bar.setObjectName("topbar")
-        bar.setFixedHeight(60)
-        lay = QHBoxLayout(bar)
-        lay.setContentsMargins(20, 8, 20, 8)
-        self.crumb = QLabel("")
-        self.crumb.setObjectName("crumb")
-        lay.addWidget(self.crumb)
-        lay.addSpacing(16)
-        search = QPushButton(f"  {tr('بحث شامل... (Ctrl+K)')}")
-        search.setIcon(icons.icon("search"))
-        search.setMinimumWidth(200 if theme.compact() else 360)
-        search.setStyleSheet(f"text-align: right; border-radius: 18px; background: {theme.tokens()['surface2']};"
-                             f"border: 1px solid transparent; color: {theme.tokens()['muted']}; padding: 8px 14px;")
-        search.setCursor(Qt.CursorShape.PointingHandCursor)
-        search.clicked.connect(self.open_palette)
-        lay.addWidget(search)
+            lay.addWidget(btn)
+            self.section_buttons[section] = btn
         lay.addStretch(1)
+
+        # ---- أدوات ----
         self.server_btn = QPushButton()
         self.server_btn.setProperty("variant", "ghost")
         self.server_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.server_btn.clicked.connect(self.show_pairing)
         lay.addWidget(self.server_btn)
         if ctx.can("sales.create"):
-            lay.addWidget(button("بيع جديد", "cart", "primary", on_click=lambda: self.navigate("pos"),
-                                 tooltip="F2"))
-        theme_btn = icon_button("moon" if theme.mode() == "light" else "sun", "تبديل الوضع الليلي", self.toggle_theme)
-        lay.addWidget(theme_btn)
+            lay.addWidget(button("" if small else "بيع جديد", "cart", "primary", on_click=lambda: self.navigate("pos"),
+                                 tooltip="بيع جديد (F2)"))
+        lay.addWidget(icon_button("moon" if theme.mode() == "light" else "sun", "تبديل الوضع الليلي", self.toggle_theme))
         bell_box = QWidget()
         bl = QHBoxLayout(bell_box)
         bl.setContentsMargins(0, 0, 0, 0)
@@ -322,9 +282,113 @@ class MainWindow(QMainWindow):
         bl.addWidget(icon_button("bell", tr("الإشعارات"), lambda: self.navigate("notifications")))
         self.bell_count = QLabel("")
         self.bell_count.setObjectName("bellCount")
-        bl.addWidget(self.bell_count)
+        self.bell_count.setFixedHeight(17)
+        self.bell_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        bl.addWidget(self.bell_count, 0, Qt.AlignmentFlag.AlignTop)
         lay.addWidget(bell_box)
+        lay.addWidget(self._build_user_chip(small))
         return bar
+
+    def _build_user_chip(self, small: bool) -> QWidget:
+        """صورة المستخدم واسمه، وعند النقر: قفل الشاشة أو تسجيل الخروج."""
+        from ftapp.services.permissions import ROLES
+
+        role = ROLES.get(ctx.role, ctx.role)
+        chip = QPushButton()
+        chip.setObjectName("userChip")
+        chip.setCursor(Qt.CursorShape.PointingHandCursor)
+        row = QHBoxLayout(chip)
+        row.setContentsMargins(4, 2, 10, 2)
+        row.setSpacing(8)
+        avatar = QLabel(ctx.display_name[:1] or "؟")
+        avatar.setObjectName("avatar")
+        avatar.setFixedSize(30, 30)
+        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        row.addWidget(avatar)
+        if not small:
+            col = QVBoxLayout()
+            col.setSpacing(0)
+            nm = QLabel(ctx.display_name)
+            nm.setStyleSheet("font-weight: bold; background: transparent;")
+            rl = QLabel(role)
+            rl.setObjectName("hint")
+            col.addWidget(nm)
+            col.addWidget(rl)
+            row.addLayout(col)
+        chip.setMinimumSize(row.sizeHint().width() + 8, 40)
+        chip.setToolTip(f"{ctx.display_name} — {role}")
+        menu = QMenu(chip)
+        menu.setLayoutDirection(direction())
+        menu.addAction(icons.icon("lock"), tr("قفل الشاشة") + "  (Ctrl+L)", self.lock)
+        menu.addSeparator()
+        menu.addAction(icons.icon("logout", theme.tokens()["danger"]), tr("تسجيل الخروج"), self.logout)
+        chip.setMenu(menu)
+        return chip
+
+    def _build_subnav(self) -> QWidget:
+        """الصف الثاني: صفحات القسم الحالي + البحث الشامل."""
+        small = theme.compact()
+        bar = QWidget()
+        bar.setObjectName("subnav")
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(6, 0, 6, 0)
+        lay.setSpacing(8)
+        group = QButtonGroup(self)
+        group.setExclusive(True)
+        for spec in self.visible_specs:
+            btn = QPushButton(f" {tr(spec.title)}")
+            btn.setObjectName("navPill")
+            btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            btn.setCheckable(True)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setIconSize(QSize(16, 16))
+            btn.setProperty("icon_name", spec.icon)
+            btn.setProperty("section", spec.section)
+            btn.toggled.connect(lambda on, b=btn: self._tint(b, on, theme.tokens()["primary"], theme.tokens()["icon"]))
+            self._tint(btn, False, theme.tokens()["primary"], theme.tokens()["icon"])
+            btn.clicked.connect(lambda _=False, k=spec.key: self.navigate(k))
+            btn.hide()
+            group.addButton(btn)
+            lay.addWidget(btn)
+            self.nav_buttons[spec.key] = btn
+        self.crumb = QLabel("")
+        self.crumb.setObjectName("crumb")
+        lay.addWidget(self.crumb)
+        lay.addStretch(1)
+        search = QPushButton(f"  {tr('بحث شامل...')}   Ctrl+K")
+        search.setObjectName("searchPill")
+        search.setIcon(icons.icon("search", theme.tokens()["muted"]))
+        search.setMinimumWidth(180 if small else 300)
+        search.setCursor(Qt.CursorShape.PointingHandCursor)
+        search.clicked.connect(self.open_palette)
+        lay.addWidget(search)
+        return bar
+
+    def _wide(self) -> bool:
+        return self.width() >= 1500
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if hasattr(self, "brand_names"):
+            self.brand_names.setVisible(self._wide())
+            self._update_server_status()
+
+    def _retint(self) -> None:
+        t = theme.tokens()
+        for b in self.section_buttons.values():
+            self._tint(b, b.isChecked(), "#FFFFFF", t["muted"])
+        for b in self.nav_buttons.values():
+            self._tint(b, b.isChecked(), t["primary"], t["icon"])
+
+    @staticmethod
+    def _tint(btn: QPushButton, on: bool, on_color: str, off_color: str) -> None:
+        btn.setIcon(icons.icon(btn.property("icon_name"), on_color if on else off_color))
+
+    def _spec(self, key: str) -> PageSpec:
+        return next(sp for sp in self.visible_specs if sp.key == key)
+
+    def _first_in(self, section: str) -> str:
+        return next(sp.key for sp in self.visible_specs if sp.section == section)
 
     # ---------------- التنقل ----------------
     def navigate(self, key: str, payload=None) -> None:
@@ -348,9 +412,17 @@ class MainWindow(QMainWindow):
             page._wrapper = wrapper
             self.stack.addWidget(wrapper)
         self.stack.setCurrentWidget(getattr(page, "_wrapper", page))
+        self.current_key = key
+        self.section_last[spec.section] = key
+        if spec.section in self.section_buttons:
+            self.section_buttons[spec.section].setChecked(True)
+        siblings = [k for k, b in self.nav_buttons.items() if b.property("section") == spec.section]
+        for b in self.nav_buttons.values():
+            # أزرار الصفحات تظهر فقط إذا كان للقسم أكثر من صفحة
+            b.setVisible(b.property("section") == spec.section and len(siblings) > 1)
         if key in self.nav_buttons:
             self.nav_buttons[key].setChecked(True)
-        self.crumb.setText(f"{tr(spec.section)}  ›  {tr(spec.title)}")
+        self.crumb.setText(f"{tr(spec.section)}  ›  {tr(spec.title)}" if len(siblings) <= 1 else "")
         if payload is not None and hasattr(page, "open_item"):
             QTimer.singleShot(0, lambda: page.open_item(payload))
 
@@ -378,11 +450,11 @@ class MainWindow(QMainWindow):
     def _update_server_status(self) -> None:
         t = theme.tokens()
         if api_server.running:
-            self.server_btn.setText(f"  {tr('السيرفر يعمل')} • {local_ips()[0]}:{api_server.port}")
+            self.server_btn.setText(f" {tr('السيرفر يعمل')}" if self._wide() else "")
             self.server_btn.setIcon(icons.icon("wifi", t["success"]))
-            self.server_btn.setToolTip("اضغط لعرض رمز QR لربط الموبايل")
+            self.server_btn.setToolTip(f"السيرفر يعمل على {local_ips()[0]}:{api_server.port}\nاضغط لربط الموبايل")
         else:
-            self.server_btn.setText(f"  {tr('السيرفر متوقف')}")
+            self.server_btn.setText(f" {tr('السيرفر متوقف')}" if self._wide() else "")
             self.server_btn.setIcon(icons.icon("wifi", t["danger"]))
             self.server_btn.setToolTip(api_server.error or "سيرفر الموبايل غير مفعّل")
 
@@ -397,6 +469,7 @@ class MainWindow(QMainWindow):
         with ctx.session() as (s, _):
             settings_service.update(s, "ui", theme=new)
         theme.apply(QApplication.instance(), new)
+        self._retint()
         Toast.show_message(self, "تم تغيير المظهر. بعض العناصر تتحدث بالكامل بعد إعادة الدخول.", "info")
 
     # ---------------- الجلسة ----------------

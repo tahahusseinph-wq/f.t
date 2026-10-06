@@ -3,6 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 from openpyxl import load_workbook
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QTextDocument
 
 from ftapp.services import (backup_service, catalog_service, excel_service, gemini_service, pdf_service,
                             sales_service, update_service)
@@ -72,6 +74,25 @@ def test_invoice_pdf_and_labels(db, admin, product_factory, tmp_path):
         assert out.read_bytes()[:4] == b"%PDF"
     lbl = pdf_service.labels_pdf(db, [(p, 3)], tmp_path / "l.pdf", sheet="a4")
     assert lbl.stat().st_size > 1000
+
+
+def test_invoice_custom_details_facebook_and_shamcash(db, admin, product_factory):
+    from ftapp.services import settings_service
+
+    settings_service.update(db, "company", phone="0991234567", invoice_details="سجل تجاري 123\nواتساب 0999",
+                            facebook_url="ft.trading", shamcash_account="SC-778899")
+    p = product_factory("شاحن", qty=5)
+    inv = sales_service.create_sale(db, admin, sales_service.SaleRequest(
+        [sales_service.CartLine(p.id, 1)], payment_method="shamcash", notes="رقم عملية شام كاش: 555"))
+    db.commit()
+    assert pdf_service.facebook_link("ft.trading") == "https://www.facebook.com/ft.trading"
+    assert pdf_service.facebook_link("facebook.com/x") == "https://facebook.com/x"
+    for paper in ("A4", "80mm"):
+        doc = pdf_service.build_invoice_document(db, inv, paper)
+        text = doc.toPlainText()
+        assert "سجل تجاري 123" in text and "واتساب 0999" in text and "0991234567" in text
+        assert "SC-778899" in text and "تابعونا على فيسبوك" in text and "555" in text
+        assert not doc.resource(QTextDocument.ResourceType.ImageResource, QUrl("fb")).isNull()
 
 
 class _FakeModels:
