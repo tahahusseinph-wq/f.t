@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/api.dart';
 import '../core/format.dart';
+import '../core/offline_db.dart';
 import '../core/theme.dart';
 import '../state/cart.dart';
 import '../state/session.dart';
@@ -21,7 +22,101 @@ class PosScreen extends ConsumerStatefulWidget {
 
 class _PosScreenState extends ConsumerState<PosScreen> {
   final _search = TextEditingController();
+  final _shamRef = TextEditingController();
   bool _busy = false;
+
+  @override
+  void dispose() {
+    _search.dispose();
+    _shamRef.dispose();
+    super.dispose();
+  }
+
+  // ---------------- العملة وسعر الصرف ----------------
+  List<Map<String, dynamic>> get _currencies =>
+      ((ref.read(sessionProvider).meta['currencies'] as List?) ?? []).map((c) => Map<String, dynamic>.from(c as Map)).toList();
+
+  Map<String, dynamic>? get _base => _currencies.where((c) => c['is_base'] == true).firstOrNull;
+
+  double _rateOf(String? code) {
+    final c = _currencies.where((c) => c['code'] == code).firstOrNull;
+    final r = asNum(c?['rate']).toDouble();
+    return r > 0 ? r : 1;
+  }
+
+  /// أسعار المنتجات المحفوظة على الجهاز تُعاد مزامنتها بالعملة/السعر الجديد.
+  Future<void> _resyncPrices() async {
+    await OfflineDb.setMeta('products_since', null);
+    ref.read(syncProvider).syncAll();
+  }
+
+  Future<void> _pickCurrency() async {
+    final session = ref.read(sessionProvider);
+    final list = _currencies;
+    if (list.length < 2) return;
+    final base = _base;
+    final code = await showModalBottomSheet<String>(
+      context: context,
+      builder: (c) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('عملة البيع', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+          ),
+          for (final cur in list)
+            ListTile(
+              leading: Icon(cur['code'] == session.currency ? Icons.radio_button_checked : Icons.radio_button_off, color: Brand.primary),
+              title: Text('${cur['name']} (${cur['symbol']})'),
+              subtitle: Text(cur['is_base'] == true
+                  ? 'العملة الأساسية'
+                  : 'سعر الصرف: 1 ${base?['code'] ?? ''} = ${fmtQty(asNum(cur['rate']))} ${cur['symbol']}'),
+              onTap: () => Navigator.pop(c, '${cur['code']}'),
+            ),
+          const SizedBox(height: 8),
+        ]),
+      ),
+    );
+    if (code == null || code == session.currency) return;
+    final factor = _rateOf(code) / _rateOf(session.currency);
+    await session.setCurrency(code);
+    ref.read(cartProvider).rescale(factor);
+    await _resyncPrices();
+  }
+
+  Future<void> _editRate() async {
+    final session = ref.read(sessionProvider);
+    final info = session.currencyInfo;
+    if (info == null || info['is_base'] == true) return;
+    final old = asNum(info['rate']).toDouble();
+    final ctl = TextEditingController(text: '$old'.replaceAll(RegExp(r'\.0$'), ''));
+    final value = await showDialog<double>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('سعر الصرف'),
+        content: TextField(
+          controller: ctl,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(labelText: 'كم تساوي 1 ${_base?['code'] ?? ''} بـ ${info['name']}؟'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(c, double.tryParse(ctl.text.replaceAll(',', ''))), child: const Text('حفظ')),
+        ],
+      ),
+    );
+    if (value == null || value <= 0 || value == old) return;
+    try {
+      await session.api!.put('/currencies/${info['code']}/rate', {'rate': value});
+      await session.loadMeta();
+      session.refresh();
+      ref.read(cartProvider).rescale(value / old);
+      await _resyncPrices();
+      if (mounted) showMsg(context, 'تم تعديل سعر الصرف: 1 ${_base?['code'] ?? ''} = ${fmtQty(value)} ${info['symbol']}');
+    } on ApiException catch (e) {
+      if (mounted) showMsg(context, e.message, error: true);
+    }
+  }
 
   Future<String?> _addByCode(String code) async {
     try {
@@ -67,7 +162,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     final session = ref.read(sessionProvider);
     final sync = ref.read(syncProvider);
     if (cart.isEmpty) return;
-    if (!quotation && cart.paymentMethod != 'cash' && cart.customer == null) {
+    if (!quotation && cart.needsCustomer && cart.customer == null) {
       showMsg(context, 'البيع الآجل يحتاج اختيار زبون', error: true);
       return;
     }
@@ -78,6 +173,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     try {
       final inv = await session.api!.post<Map<String, dynamic>>('/sales', {...payload, 'client_op_id': opId});
       cart.clear();
+      _shamRef.clear();
       if (mounted) {
         Navigator.push(context, MaterialPageRoute(builder: (_) => InvoiceScreen(invoiceId: inv['id'] as int)));
       }
@@ -85,6 +181,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
       if (e.offline && !quotation) {
         await sync.queue('sale', payload, 'بيع ${fmtMoney(cart.total, session.currencySymbol)}', opId: opId);
         cart.clear();
+        _shamRef.clear();
         if (mounted) showMsg(context, 'لا يوجد اتصال — حُفظت الفاتورة وستُرسل تلقائياً عند عودة الاتصال');
       } else if (mounted) {
         showMsg(context, e.message, error: true);
@@ -138,17 +235,21 @@ class _PosScreenState extends ConsumerState<PosScreen> {
         child: cart.isEmpty
             ? const EmptyState(icon: Icons.shopping_cart_outlined, text: 'السلة فارغة\nامسح باركود المنتجات لإضافتها')
             : ListView.separated(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
                 itemCount: cart.lines.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 8),
+                separatorBuilder: (_, _) => const SizedBox(height: 10),
                 itemBuilder: (_, i) {
                   final l = cart.lines[i];
                   return Dismissible(
                     key: ValueKey(l.productId),
                     onDismissed: (_) => cart.remove(l),
-                    background: Container(color: Brand.danger, alignment: Alignment.center, child: const Icon(Icons.delete, color: Colors.white)),
-                    child: Card(
-                      child: Padding(
+                    background: Container(
+                      decoration: BoxDecoration(color: Brand.danger, borderRadius: BorderRadius.circular(20)),
+                      alignment: Alignment.center,
+                      child: const Icon(Icons.delete, color: Colors.white),
+                    ),
+                    child: ClayCard(
+                        radius: 20,
                         padding: const EdgeInsets.all(10),
                         child: Row(children: [
                           Expanded(
@@ -172,7 +273,6 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                             child: Text(fmtMoney(l.total, sym), textAlign: TextAlign.end, style: const TextStyle(fontWeight: FontWeight.w700)),
                           ),
                         ]),
-                      ),
                     ),
                   );
                 },
@@ -181,6 +281,13 @@ class _PosScreenState extends ConsumerState<PosScreen> {
       _CheckoutPanel(
         cart: cart,
         symbol: sym,
+        currencyLabel: session.currencyInfo == null ? '' : '${session.currencyInfo!['name']} (${session.currencyInfo!['symbol']})',
+        rateLabel: session.currencyInfo == null || session.currencyInfo!['is_base'] == true
+            ? ''
+            : '1 ${_base?['code'] ?? ''} = ${fmtQty(asNum(session.currencyInfo!['rate']))} $sym',
+        onCurrency: _currencies.length > 1 ? _pickCurrency : null,
+        onRate: session.can('settings.manage') && session.currencyInfo?['is_base'] != true ? _editRate : null,
+        shamRef: _shamRef,
         canDiscount: canDiscount,
         busy: _busy,
         onCustomer: _pickCustomer,
@@ -197,10 +304,16 @@ class _CheckoutPanel extends StatelessWidget {
   const _CheckoutPanel({
     required this.cart, required this.symbol, required this.canDiscount, required this.busy, required this.onCustomer,
     required this.onDiscount, required this.onPaid, required this.onCheckout, required this.onQuotation,
+    required this.currencyLabel, required this.rateLabel, required this.onCurrency, required this.onRate, required this.shamRef,
   });
 
   final Cart cart;
   final String symbol;
+  final String currencyLabel;
+  final String rateLabel;
+  final VoidCallback? onCurrency;
+  final VoidCallback? onRate;
+  final TextEditingController shamRef;
   final bool canDiscount;
   final bool busy;
   final VoidCallback onCustomer, onDiscount, onPaid, onCheckout, onQuotation;
@@ -208,13 +321,18 @@ class _CheckoutPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Material(
-      elevation: 8,
-      color: scheme.surface,
+    final clay = Clay.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [clay.surfaceHi, clay.surface]),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        border: Border.all(color: clay.hi.withValues(alpha: clay.dark ? 0.6 : 1), width: 1.5),
+        boxShadow: [BoxShadow(color: clay.shadow.withValues(alpha: clay.dark ? 0.6 : 0.3), blurRadius: 24, offset: const Offset(0, -6))],
+      ),
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Row(children: [
               Expanded(
@@ -228,29 +346,72 @@ class _CheckoutPanel extends StatelessWidget {
                 const SizedBox(width: 8),
                 OutlinedButton(onPressed: onDiscount, child: Text(cart.discount > 0 ? 'خصم ${fmtMoney(cart.discount)}' : 'خصم')),
               ],
+              if (currencyLabel.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                Tooltip(
+                  message: currencyLabel,
+                  child: OutlinedButton.icon(
+                    onPressed: onCurrency,
+                    style: OutlinedButton.styleFrom(minimumSize: const Size(0, 48), padding: const EdgeInsets.symmetric(horizontal: 12)),
+                    icon: const Icon(Icons.currency_exchange_rounded, size: 18),
+                    label: Text(symbol),
+                  ),
+                ),
+              ],
+              if (onRate != null)
+                IconButton.filledTonal(tooltip: 'تعديل سعر الصرف', onPressed: onRate, icon: const Icon(Icons.edit_rounded)),
             ]),
             const SizedBox(height: 8),
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(value: 'cash', label: Text('نقدي')),
-                ButtonSegment(value: 'credit', label: Text('آجل')),
-                ButtonSegment(value: 'partial', label: Text('جزئي')),
-              ],
-              selected: {cart.paymentMethod},
-              onSelectionChanged: (s) {
-                cart.paymentMethod = s.first;
-                if (s.first == 'credit') cart.paid = 0;
-                cart.update();
-              },
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<String>(
+                showSelectedIcon: false,
+                style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                segments: [
+                  for (final e in paymentMethods.entries)
+                    ButtonSegment(value: e.key, label: Text(e.value, maxLines: 1, softWrap: false, style: const TextStyle(fontSize: 13.5))),
+                ],
+                selected: {cart.paymentMethod},
+                onSelectionChanged: (s) {
+                  cart.paymentMethod = s.first;
+                  if (s.first == 'credit' || s.first == 'shamcash') cart.paid = 0;
+                  cart.update();
+                },
+              ),
             ),
             if (cart.paymentMethod == 'partial')
               TextButton(onPressed: onPaid, child: Text('المدفوع: ${fmtMoney(cart.paid, symbol)} — اضغط للتعديل')),
-            const SizedBox(height: 6),
-            Row(children: [
-              const Text('الإجمالي', style: TextStyle(fontSize: 16)),
-              const Spacer(),
-              Text(fmtMoney(cart.total, symbol), style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: scheme.primary)),
-            ]),
+            if (cart.paymentMethod == 'shamcash') ...[
+              const SizedBox(height: 8),
+              TextField(
+                controller: shamRef,
+                textDirection: TextDirection.ltr,
+                onChanged: (v) => cart.shamRef = v,
+                decoration: const InputDecoration(
+                  isDense: true,
+                  hintText: 'رقم عملية شام كاش (اختياري)',
+                  prefixIcon: Icon(Icons.account_balance_wallet_outlined),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text('يُسدَّد كامل المبلغ عبر شام كاش (لا يدخل صندوق النقد)',
+                    style: TextStyle(color: scheme.primary, fontSize: 12, fontWeight: FontWeight.w700)),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: clay.sunken(radius: 18, color: clay.primarySoft),
+              child: Row(children: [
+                Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                  Text('الإجمالي', style: TextStyle(fontSize: 15, color: clay.text)),
+                  if (rateLabel.isNotEmpty) Text(rateLabel, style: TextStyle(fontSize: 11, color: clay.muted)),
+                ]),
+                const Spacer(),
+                Text(fmtMoney(cart.total, symbol), style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: scheme.primary)),
+              ]),
+            ),
             const SizedBox(height: 8),
             Row(children: [
               OutlinedButton(onPressed: cart.isEmpty || busy ? null : onQuotation, child: const Text('عرض سعر')),

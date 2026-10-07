@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import '../core/api.dart';
 import '../core/format.dart';
 import '../core/theme.dart';
+import '../state/cart.dart';
 import '../state/session.dart';
 import '../widgets/common.dart';
 
@@ -13,7 +14,9 @@ final invoicesProvider = FutureProvider.autoDispose.family<List<dynamic>, String
 });
 
 class InvoicesScreen extends ConsumerStatefulWidget {
-  const InvoicesScreen({super.key});
+  const InvoicesScreen({super.key, this.embedded = false});
+
+  final bool embedded;
 
   @override
   ConsumerState<InvoicesScreen> createState() => _InvoicesScreenState();
@@ -26,7 +29,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
   Widget build(BuildContext context) {
     final data = ref.watch(invoicesProvider(kind));
     return Scaffold(
-      appBar: AppBar(title: const Text('الفواتير')),
+      appBar: widget.embedded ? null : AppBar(title: const Text('الفواتير')),
       body: Column(children: [
         Padding(
           padding: const EdgeInsets.all(12),
@@ -49,14 +52,18 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
               data: (rows) => rows.isEmpty
                   ? const EmptyState(icon: Icons.receipt_long, text: 'لا توجد فواتير')
                   : ListView.separated(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
                       itemCount: rows.length,
-                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
                       itemBuilder: (_, i) {
                         final inv = rows[i] as Map<String, dynamic>;
-                        return ListTile(
+                        return ClayCard(
+                          radius: 20,
+                          padding: EdgeInsets.zero,
+                          child: ListTile(
                           title: Text('${inv['number']}', style: const TextStyle(fontWeight: FontWeight.w700)),
-                          subtitle: Text('${inv['customer_name'] == '' ? 'زبون نقدي' : inv['customer_name']} • ${fmtDate(inv['created_at'] as String?)}'),
+                          subtitle: Text('${inv['customer_name'] == '' ? 'زبون نقدي' : inv['customer_name']} • ${fmtDate(inv['created_at'] as String?)}'
+                              '${inv['payment_method'] == 'shamcash' ? ' • شام كاش' : ''}'),
                           trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
                             Text(fmtMoney(asNum(inv['total']), '${inv['currency_symbol']}'), style: const TextStyle(fontWeight: FontWeight.w700)),
                             if (asNum(inv['remaining']) > 0 && inv['kind'] == 'sale')
@@ -64,6 +71,7 @@ class _InvoicesScreenState extends ConsumerState<InvoicesScreen> {
                             if (inv['status'] == 'cancelled') const Text('ملغاة', style: TextStyle(color: Brand.danger, fontSize: 12)),
                           ]),
                           onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => InvoiceScreen(invoiceId: inv['id'] as int))),
+                          ),
                         );
                       },
                     ),
@@ -146,6 +154,7 @@ class _InvoiceScreenState extends ConsumerState<InvoiceScreen> {
                   _row('التاريخ', fmtDate(i['created_at'] as String?)),
                   _row('الزبون', i['customer_name'] == '' ? 'زبون نقدي' : '${i['customer_name']}'),
                   _row('البائع', '${i['seller']}'),
+                  if (i['kind'] == 'sale') _row('طريقة الدفع', paymentMethods[i['payment_method']] ?? '${i['payment_method']}'),
                 ]),
               ),
               const SizedBox(height: 10),
@@ -173,6 +182,10 @@ class _InvoiceScreenState extends ConsumerState<InvoiceScreen> {
                   if (i['kind'] == 'sale' && asNum(i['remaining']) > 0) _row('المتبقي (دين)', fmtMoney(asNum(i['remaining']), sym), color: Brand.danger),
                 ]),
               ),
+              if ('${i['notes'] ?? ''}'.trim().isNotEmpty) ...[
+                const SizedBox(height: 10),
+                SectionCard(title: 'ملاحظات', icon: Icons.notes_rounded, child: Text('${i['notes']}')),
+              ],
               const SizedBox(height: 16),
               Row(children: [
                 Expanded(

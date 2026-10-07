@@ -80,6 +80,7 @@ class Product(Base, TimestampMixin):
     notes: Mapped[str] = mapped_column(Text, default="")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     track_expiry: Mapped[bool] = mapped_column(Boolean, default=False)
+    warranty: Mapped[str] = mapped_column(String(64), default="")  # مدة الكفالة، فارغ = بدون كفالة
     last_sold_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     category: Mapped[Category | None] = relationship()

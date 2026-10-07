@@ -77,7 +77,7 @@ class ApiClient {
         final dio = Dio(BaseOptions(baseUrl: candidate.baseUrl, connectTimeout: const Duration(seconds: 3), receiveTimeout: const Duration(seconds: 5)));
         final res = await dio.get('/ping');
         final data = res.data as Map<String, dynamic>;
-        if (data['app'] != 'ft-trading') throw ApiException('هذا العنوان ليس سيرفر مجموعة فاروق الطعمة');
+        if (data['app'] != 'ft-trading') throw ApiException('هذا العنوان ليس سيرفر مجموعة الطعمة التجارية');
         return (ServerInfo(hosts: candidate.hosts, port: s.port, id: '${data['server_id']}', name: '${data['company'] ?? ''}'), data);
       } on ApiException catch (e) {
         last = e;

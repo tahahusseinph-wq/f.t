@@ -119,7 +119,8 @@ def _fill_header(session: Session, inv: Invoice, req: SaleRequest, calc: dict[st
         p = l["product"]
         inv.items.append(InvoiceItem(product_id=p.id, product_name=p.name, product_code=p.code, unit=p.unit,
                                      quantity=l["quantity"], unit_price=l["unit_price"], discount=l["discount"],
-                                     cost_price=p.cost_price, line_total=l["line_total"]))
+                                     cost_price=p.cost_price, line_total=l["line_total"],
+                                     warranty=p.warranty or ""))
 
 
 def create_sale(session: Session, actor: User | None, req: SaleRequest, agreed_prices: bool = False) -> Invoice:

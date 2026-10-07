@@ -91,7 +91,7 @@ class ImageProductPreview(AIDetailsPreview):
     """نتيجة «البحث عن معلومات العنصر بالصورة»: البيانات الأساسية + التفاصيل + الصورة، مع اختيار ما يُطبَّق."""
 
     BASICS = (("name", "اسم المنتج"), ("brand", "الماركة"), ("model", "الموديل"), ("barcode", "الباركود"),
-              ("unit", "الوحدة"), ("category", "القسم"))
+              ("unit", "الوحدة"), ("warranty", "الكفالة"), ("category", "القسم"))
 
     def __init__(self, parent, info: gemini_service.ImageProductInfo, fields: list[Any], image: bytes,
                  categories: list[str]) -> None:
@@ -120,7 +120,7 @@ class ImageProductPreview(AIDetailsPreview):
         top.addLayout(side)
 
         values = {"name": info.name, "brand": info.brand, "model": info.model, "barcode": info.barcode,
-                  "unit": info.unit, "category": info.suggested_category}
+                  "unit": info.unit, "warranty": info.warranty, "category": info.suggested_category}
         rows = [(k, label, values[k]) for k, label in self.BASICS if values[k].strip()]
         self.basics = QTableWidget(len(rows), 3)
         self.basics.setHorizontalHeaderLabels(["تطبيق", "البيان", "القيمة"])
@@ -150,8 +150,6 @@ class ImageProductPreview(AIDetailsPreview):
             notes.append("كلمات البحث: " + "، ".join(info.keywords))
         if notes:
             lay.insertWidget(3, muted("\n".join(notes)))
-        if info.warranty:
-            self.desc.appendPlainText(f"الكفالة: {info.warranty}")
 
     def selection(self) -> dict[str, Any]:
         out = super().selection()

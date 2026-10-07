@@ -13,7 +13,9 @@ final usersProvider = FutureProvider.autoDispose<List<dynamic>>((ref) async {
 const _roles = {'admin': 'أدمن', 'manager': 'مدير', 'seller': 'بائع', 'viewer': 'مستخدم (بحث فقط)'};
 
 class UsersScreen extends ConsumerWidget {
-  const UsersScreen({super.key});
+  const UsersScreen({super.key, this.embedded = false});
+
+  final bool embedded;
 
   Future<void> _add(BuildContext context, WidgetRef ref) async {
     final user = TextEditingController();
@@ -62,7 +64,7 @@ class UsersScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final data = ref.watch(usersProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('المستخدمون')),
+      appBar: embedded ? null : AppBar(title: const Text('المستخدمون')),
       floatingActionButton: FloatingActionButton.extended(onPressed: () => _add(context, ref), icon: const Icon(Icons.person_add), label: const Text('مستخدم')),
       body: data.when(
         loading: () => const Center(child: CircularProgressIndicator()),

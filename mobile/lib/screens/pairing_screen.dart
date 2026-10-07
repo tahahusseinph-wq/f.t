@@ -67,7 +67,7 @@ class _PairingScreenState extends ConsumerState<PairingScreen> {
           const SizedBox(height: 24),
           Center(child: Image.asset('assets/images/logo.png', width: 130)),
           const SizedBox(height: 16),
-          const Text('مجموعة فاروق الطعمة التجارية', textAlign: TextAlign.center, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+          const Text('مجموعة الطعمة التجارية', textAlign: TextAlign.center, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
           Text('اربط التطبيق ببرنامج الأدمن على الكمبيوتر', textAlign: TextAlign.center, style: TextStyle(color: scheme.outline)),
           const SizedBox(height: 28),
           FilledButton.icon(

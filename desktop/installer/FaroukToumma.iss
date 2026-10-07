@@ -1,6 +1,6 @@
 ; مثبّت ويندوز لتطبيق الأدمن — يُبنى تلقائياً في GitHub Actions بعد PyInstaller
-#define AppName "مجموعة فاروق الطعمة التجارية"
-#define AppNameEn "Farouk Toumma Trading Group"
+#define AppName "مجموعة الطعمة التجارية"
+#define AppNameEn "Al-Toumma Trading Group"
 #ifndef AppVersion
   #define AppVersion "1.0.0"
 #endif

@@ -248,6 +248,17 @@ class ProductDialog(QDialog):
         self.location = QLineEdit()
         self.location.setPlaceholderText("مثال: رف A-3")
         f.addRow("الموقع في المستودع", self.location)
+        w_row = QHBoxLayout()
+        self.has_warranty = QCheckBox("عليه كفالة")
+        self.warranty = QComboBox()
+        self.warranty.setEditable(True)
+        self.warranty.addItems(["سنة", "6 أشهر", "3 أشهر", "سنتان", "شهر"])
+        self.warranty.setEnabled(False)
+        self.has_warranty.toggled.connect(self.warranty.setEnabled)
+        w_row.addWidget(self.has_warranty)
+        w_row.addWidget(QLabel("المدة"))
+        w_row.addWidget(self.warranty, 1)
+        f.addRow("الكفالة", self._wrap(w_row))
         flags = QHBoxLayout()
         self.active = QCheckBox("فعّال (يظهر للبيع)")
         self.active.setChecked(True)
@@ -455,6 +466,7 @@ class ProductDialog(QDialog):
         self.location.setText(p.location)
         self.active.setChecked(p.is_active)
         self.track_expiry.setChecked(p.track_expiry)
+        self._set_warranty(p.warranty or "")
         self.cost.setValue(p.cost_price)
         self.inherit_margin.setChecked(p.margin is None)
         self.margin.setValue(p.margin if p.margin is not None else (catalog_service.effective_margin(s, p) or 0))
@@ -784,6 +796,8 @@ class ProductDialog(QDialog):
             self.barcode.setText(re.sub(r"\D", "", basic["barcode"]) or basic["barcode"])
         if "unit" in basic:
             self.unit.setCurrentText(basic["unit"])
+        if "warranty" in basic:
+            self._set_warranty(basic["warranty"])
         # تغيير القسم يعيد بناء الخانات المخصصة، فتُطابق قيمها من جديد مع احترام ما أُلغي تحديده في المعاينة
         shown = set(gemini_service.match_custom_fields(info, [ed.field for ed in self.field_editors.values()]))
         unchecked = shown - set(sel.get("fields", {}))
@@ -818,6 +832,11 @@ class ProductDialog(QDialog):
         LabelsDialog(self, [self.product_id]).exec()
 
     # ------------------------------------------------------------------
+    def _set_warranty(self, warranty: str) -> None:
+        self.has_warranty.setChecked(bool(warranty))
+        if warranty:
+            self.warranty.setCurrentText(warranty)
+
     def _input(self) -> catalog_service.ProductInput:
         data = catalog_service.ProductInput(
             name=self.name.text(), code=self.code.text(), barcode=self.barcode.text(),
@@ -830,6 +849,7 @@ class ProductDialog(QDialog):
             details=self.details.toPlainText().strip(), specs=self._collect_specs(),
             notes=self.notes.toPlainText().strip(), is_active=self.active.isChecked(),
             track_expiry=self.track_expiry.isChecked(),
+            warranty=(self.warranty.currentText().strip() or "سنة") if self.has_warranty.isChecked() else "",
             custom_values={fid: ed.value() for fid, ed in self.field_editors.items()},
             tier_prices={tid: sp.value() for tid, sp in self.tier_spins.items()},
         )

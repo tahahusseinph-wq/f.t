@@ -67,6 +67,89 @@ class ErrorView extends StatelessWidget {
       );
 }
 
+/// بطاقة صلصال بارزة: تدرج ناعم، حافة مضيئة، وظل ممتد.
+class ClayCard extends StatelessWidget {
+  const ClayCard({super.key, required this.child, this.padding = const EdgeInsets.all(14), this.radius = 24, this.onTap, this.gradient, this.depth = 1});
+
+  final Widget child;
+  final EdgeInsets padding;
+  final double radius;
+  final VoidCallback? onTap;
+  final Gradient? gradient;
+  final double depth;
+
+  @override
+  Widget build(BuildContext context) {
+    final clay = Clay.of(context);
+    return DecoratedBox(
+      decoration: clay.raised(radius: radius, gradient: gradient, depth: depth),
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(radius),
+          onTap: onTap,
+          child: Padding(padding: padding, child: child),
+        ),
+      ),
+    );
+  }
+}
+
+/// زر تنقل بشكل كبسولة صلصال (الأقسام والصفحات في الشريط العلوي).
+class ClayPill extends StatelessWidget {
+  const ClayPill({super.key, required this.label, required this.icon, required this.selected, required this.onTap, this.strong = false, this.badge = 0});
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  /// strong = قسم رئيسي (يتلون بالأزرق عند التحديد)، وإلا صفحة فرعية (غائرة عند التحديد).
+  final bool strong;
+  final int badge;
+
+  @override
+  Widget build(BuildContext context) {
+    final clay = Clay.of(context);
+    final BoxDecoration deco;
+    final Color fg;
+    if (selected && strong) {
+      deco = clay.raised(radius: 18, gradient: clay.primaryGradient, depth: 0.6);
+      fg = Colors.white;
+    } else if (selected) {
+      deco = clay.sunken(radius: 18, color: clay.primarySoft);
+      fg = clay.primary;
+    } else if (strong) {
+      deco = BoxDecoration(borderRadius: BorderRadius.circular(18));
+      fg = clay.muted;
+    } else {
+      deco = clay.raised(radius: 18, depth: 0.45);
+      fg = clay.text;
+    }
+    Widget ic = Icon(icon, size: 18, color: selected ? fg : (strong ? clay.muted : clay.icon));
+    if (badge > 0) ic = Badge(label: Text('$badge'), child: ic);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      decoration: deco,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: onTap,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: strong ? 14 : 13, vertical: 8),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              ic,
+              const SizedBox(width: 6),
+              Text(label, style: TextStyle(color: fg, fontWeight: selected || strong ? FontWeight.w700 : FontWeight.w500, fontSize: 13.5)),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class SectionCard extends StatelessWidget {
   const SectionCard({super.key, this.title, this.icon, required this.child, this.trailing, this.padding = const EdgeInsets.all(14)});
 
@@ -77,10 +160,9 @@ class SectionCard extends StatelessWidget {
   final EdgeInsets padding;
 
   @override
-  Widget build(BuildContext context) => Card(
-        child: Padding(
-          padding: padding,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+  Widget build(BuildContext context) => ClayCard(
+        padding: padding,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             if (title != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
@@ -92,7 +174,6 @@ class SectionCard extends StatelessWidget {
               ),
             child,
           ]),
-        ),
       );
 }
 
@@ -106,14 +187,18 @@ class KpiTile extends StatelessWidget {
   final String? sub;
 
   @override
-  Widget build(BuildContext context) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(children: [
+  Widget build(BuildContext context) => ClayCard(
+        padding: const EdgeInsets.all(12),
+        radius: 22,
+        child: Row(children: [
             Container(
               width: 42,
               height: 42,
-              decoration: BoxDecoration(color: color.withValues(alpha: 0.13), borderRadius: BorderRadius.circular(12)),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                    colors: [color.withValues(alpha: 0.10), color.withValues(alpha: 0.22)]),
+                borderRadius: BorderRadius.circular(15),
+              ),
               child: Icon(icon, color: color),
             ),
             const SizedBox(width: 10),
@@ -129,7 +214,6 @@ class KpiTile extends StatelessWidget {
               ]),
             ),
           ]),
-        ),
       );
 }
 

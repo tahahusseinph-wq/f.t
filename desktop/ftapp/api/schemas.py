@@ -77,6 +77,7 @@ class ProductIn(BaseModel):
     location: str = ""
     details: str = ""
     notes: str = ""
+    warranty: str | None = None   # None = بدون تغيير (نسخ الموبايل القديمة)، "" = بدون كفالة
     initial_quantity: float = 0.0
     custom_values: dict[int, Any] = Field(default_factory=dict)
 

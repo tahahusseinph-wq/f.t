@@ -54,6 +54,33 @@ void main() {
       expect((partial['lines'] as List).first['unit_price'], 1);
     });
 
+    test('sham cash is paid in full and carries the transaction number', () {
+      final cart = Cart()..add({'id': 1, 'name': 'A', 'code': 'A', 'sale_price': 10});
+      cart.paymentMethod = 'shamcash';
+      cart.shamRef = ' 778899 ';
+      expect(cart.needsCustomer, isFalse);
+      final p = cart.toPayload('USD');
+      expect(p['payment_method'], 'shamcash');
+      expect(p.containsKey('paid'), isFalse);
+      expect(p['notes'], 'رقم عملية شام كاش: 778899');
+      cart.paymentMethod = 'credit';
+      expect(cart.needsCustomer, isTrue);
+      expect(cart.toPayload('USD')['notes'], '');
+    });
+
+    test('rescale converts all amounts to the new currency', () {
+      final cart = Cart()..add({'id': 1, 'name': 'A', 'code': 'A', 'sale_price': 2}, qty: 3);
+      cart.lines.first.discount = 1;
+      cart.discount = 1;
+      cart.paid = 2;
+      cart.rescale(15000);
+      expect(cart.lines.first.price, 30000);
+      expect(cart.total, 30000 * 3 - 15000 - 15000);
+      expect(cart.paid, 30000);
+      cart.clear();
+      expect(cart.shamRef, '');
+    });
+
     test('setQty to zero removes line', () {
       final cart = Cart()..add({'id': 1, 'name': 'A', 'code': 'A', 'sale_price': 1});
       cart.setQty(cart.lines.first, 0);

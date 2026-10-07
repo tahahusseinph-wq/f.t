@@ -154,3 +154,50 @@ def test_update_check(monkeypatch):
     monkeypatch.setattr(update_service.httpx, "get", fake_get)
     info = update_service.check("https://api.github.com/repos/o/r/releases/latest")
     assert info.is_newer and info.apk_url.endswith(".apk")
+
+
+def test_product_warranty_on_invoice_and_view(db, admin, product_factory):
+    p = product_factory("شاشة", qty=5, warranty="سنتان")
+    q = product_factory("كبل", qty=5)
+    inv = sales_service.create_sale(db, admin, sales_service.SaleRequest(
+        [sales_service.CartLine(p.id, 1), sales_service.CartLine(q.id, 1)]))
+    db.commit()
+    assert [i.warranty for i in inv.items] == ["سنتان", ""]
+    text = pdf_service.build_invoice_document(db, inv, "A4").toPlainText()
+    assert "الكفالة" in text and "سنتان" in text and "بدون" in text
+    assert "كفالة سنتان" in pdf_service.build_invoice_document(db, inv, "80mm").toPlainText()
+    view = catalog_service.product_view(db, q, privileged=False)
+    assert {"key": "warranty", "label": "الكفالة", "value": "بدون كفالة", "type": "text"} in view["fields"]
+
+
+def test_migration_renames_company_and_updates_default_terms(tmp_data):
+    import os
+
+    import sqlalchemy as sa
+    from alembic import command
+    from alembic.config import Config
+
+    from ftapp.core import db as dbm
+    from ftapp.core.paths import migrations_dir
+
+    dbm.dispose()
+    dbm.init_engine(os.path.join(tmp_data, "old.db"))
+    cfg = Config()
+    cfg.set_main_option("script_location", str(migrations_dir()).replace("%", "%%"))
+    with dbm.engine().begin() as conn:
+        cfg.attributes["connection"] = conn
+        command.upgrade(cfg, "0003")
+        conn.execute(sa.text("INSERT INTO settings (key, value) VALUES ('company', :c), ('invoice', :i)"),
+                     {"c": json.dumps({"name": "مجموعة فاروق الطعمة التجارية", "phone": "099"}, ensure_ascii=False),
+                      "i": json.dumps({"terms": "البضاعة المباعة لا تُرد ولا تُستبدل إلا بموجب هذه الفاتورة وخلال 7 أيام."},
+                                      ensure_ascii=False)})
+    dbm.run_migrations()
+    s = dbm.new_session()
+    try:
+        from ftapp.services import settings_service
+        company = settings_service.get(s, "company")
+        assert company["name"] == "مجموعة الطعمة التجارية" and company["phone"] == "099"
+        assert settings_service.get(s, "invoice")["terms"] == "البضاعة التي تُباع لا تُرد ولا تُستبدل أبداً."
+    finally:
+        s.close()
+        dbm.dispose()

@@ -143,10 +143,11 @@ def test_product_info_from_image_fills_dialog(app, db, admin, monkeypatch, tmp_p
     dlg._apply_image_info(info, sel, str(img_path))
     assert dlg.name.text() == payload["name"] and dlg.model.text() == "Buds 4"
     assert dlg.barcode.text() == "693417779" and dlg.category.currentText().strip(" └") == "سماعات"
-    assert "البطارية" in dlg._collect_specs() and "الكفالة: سنة" in dlg.details.toPlainText()
+    assert "البطارية" in dlg._collect_specs() and dlg.has_warranty.isChecked()
     assert len(dlg.pending_images) == 1
     dlg._save()
     db.expire_all()
     p = db.query(Product).filter_by(model="Buds 4").one()
     assert p.category_id == db.query(Category).filter_by(name="سماعات").one().id
     assert len(p.images) == 1 and catalog_service.image_path(p.images[0]).exists()
+    assert p.warranty == "سنة"

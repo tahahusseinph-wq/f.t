@@ -124,6 +124,20 @@ class _ProductScreenState extends ConsumerState<ProductScreen> {
                 ]),
               ),
             ),
+          if (p['warranty'] != null) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Chip(
+                avatar: Icon(
+                  p['warranty'] == 'بدون كفالة' ? Icons.gpp_bad_outlined : Icons.verified_user_outlined,
+                  size: 18,
+                  color: p['warranty'] == 'بدون كفالة' ? scheme.outline : Brand.success,
+                ),
+                label: Text('${p['warranty']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+              ),
+            ),
+          ],
           if (p['quantity'] != null) ...[
             const SizedBox(height: 10),
             KpiTile(label: 'الكمية المتوفرة', value: '${fmtQty(asNum(p['quantity']))} ${p['unit'] ?? ''}', icon: Icons.warehouse_outlined, color: Brand.success),

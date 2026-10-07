@@ -71,6 +71,8 @@ def _to_input(body: ProductIn, base=None) -> catalog_service.ProductInput:
     for key in ("name", "code", "barcode", "category_id", "brand", "model", "unit", "cost_price", "margin",
                 "price_locked", "sale_price", "min_stock", "location", "details", "notes"):
         setattr(data, key, getattr(body, key))
+    if body.warranty is not None:
+        data.warranty = body.warranty
     data.custom_values.update(body.custom_values)
     return data
 

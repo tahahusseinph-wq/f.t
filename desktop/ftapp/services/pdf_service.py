@@ -28,6 +28,7 @@ PAPERS = {"A3": "A3", "A4": "A4", "A5": "A5", "A6": "A6", "Letter": "Letter", "L
 _PAGE_IDS = {"A3": QPageSize.PageSizeId.A3, "A4": QPageSize.PageSizeId.A4, "A5": QPageSize.PageSizeId.A5,
              "A6": QPageSize.PageSizeId.A6, "Letter": QPageSize.PageSizeId.Letter, "Legal": QPageSize.PageSizeId.Legal}
 _FONT_SIZES = {"A3": 11, "A4": 9, "A5": 8, "A6": 7, "Letter": 9, "Legal": 9, "80mm": 7, "58mm": 6}
+_LOGO_HEIGHTS = {"A3": 135, "A4": 110, "Letter": 110, "Legal": 110, "A5": 88, "A6": 68}  # ارتفاع اللوغو بالنقاط
 _logo_cache: dict[tuple, QImage] = {}
 
 
@@ -138,7 +139,8 @@ def invoice_context(session: Session, inv: Invoice, paper: str = "A4") -> dict[s
         seller = u.display_name if u else ""
     items = [{"code": it.product_code, "name": it.product_name, "unit": it.unit, "qty": fmt_qty(it.quantity),
               "price": m(it.unit_price), "discount": m(it.discount) if it.discount else "—",
-              "total": m(it.line_total)} for it in inv.items]
+              "total": m(it.line_total), "warranty": (it.warranty or "").strip(),
+              "warranty_label": catalog_service.warranty_label(it.warranty)} for it in inv.items]
     style = invoice_style(session)
     titles = {"sale": style.get("sale_title") or "فاتورة مبيعات", "return": style.get("return_title") or "إشعار مرتجع",
               "quotation": style.get("quotation_title") or "عرض سعر"}
@@ -150,7 +152,7 @@ def invoice_context(session: Session, inv: Invoice, paper: str = "A4") -> dict[s
     print_cfg = settings.get(session, "printing")
     status_note = "ملغاة" if inv.status == "cancelled" else ""
     company = settings.get(session, "company")
-    logo_h = 60 if thermal else (55 if paper == "A6" else 78)
+    logo_h = 80 if thermal else _LOGO_HEIGHTS.get(paper, 110)
     logo_w, logo_h = _logo_box(logo_h)
     return {
         "inv": inv, "company": company, "currency": cur, "seller": seller, "style": style,
@@ -160,7 +162,7 @@ def invoice_context(session: Session, inv: Invoice, paper: str = "A4") -> dict[s
         "item_count": len(items), "qty_total": fmt_qty(sum(it.quantity for it in inv.items)),
         "items": items, "doc_title": titles.get(inv.kind, "فاتورة"), "thermal": thermal,
         "fs": _FONT_SIZES.get(paper, 9),
-        "logo_w": logo_w, "logo_h": logo_h, "qr_size": 75 if thermal else 72,
+        "logo_w": logo_w, "logo_h": logo_h, "qr_size": 75 if thermal else 64,
         "details": [ln.strip() for ln in (company.get("invoice_details") or "").splitlines() if ln.strip()],
         "facebook": facebook_link(company.get("facebook_url", "")),
         "shamcash": (company.get("shamcash_account") or "").strip(),
@@ -236,7 +238,7 @@ def document_to_pdf(doc: QTextDocument, path: Path, paper: str = "A4", landscape
         writer.setResolution(300)
         writer.setPageLayout(layout)
         writer.setTitle(path.stem)
-        writer.setCreator("Farouk Toumma Trading Group")
+        writer.setCreator("Al-Toumma Trading Group")
         paint_document(doc, writer, layout, writer.newPage)
     return path
 

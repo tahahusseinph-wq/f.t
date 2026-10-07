@@ -69,7 +69,7 @@ class ImageProductInfo(ProductDetails):
     barcode: str = Field(default="", description="أرقام الباركود إن كانت ظاهرة في الصورة فقط")
     unit: str = Field(default="", description="وحدة البيع: قطعة، علبة، كرتونة، متر، كيلو، لتر، طقم...")
     estimated_price_usd: float = Field(default=0, description="سعر مفرق تقريبي بالدولار في السوق، 0 إن لم تكن متأكداً")
-    warranty: str = Field(default="", description="الكفالة المعتادة إن كانت معروفة")
+    warranty: str = Field(default="", description="مدة الكفالة المعتادة فقط (مثال: سنة، 6 أشهر)، فارغ إن لم تكن معروفة")
 
 
 class InvoiceLine(BaseModel):
@@ -295,7 +295,7 @@ def ask_data(session: Session, question: str, history: list[tuple[str, str]] | N
         raise AIError("اكتب سؤالك أولاً")
     ctx = report_service.ai_context(session)
     system = (
-        "أنت مساعد تحليلي لمنظومة مجموعة فاروق الطعمة التجارية. أجب بالعربية فقط واعتماداً على البيانات المرفقة "
+        "أنت مساعد تحليلي لمنظومة مجموعة الطعمة التجارية. أجب بالعربية فقط واعتماداً على البيانات المرفقة "
         "بصيغة JSON. المبالغ بالعملة الأساسية المذكورة في الحقل currency. إذا لم تكن الإجابة موجودة في البيانات "
         "قل ذلك بوضوح واقترح التقرير المناسب من التطبيق. لا تخترع أرقاماً."
     )

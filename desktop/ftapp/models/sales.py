@@ -86,6 +86,7 @@ class InvoiceItem(Base):
     cost_price: Mapped[float] = mapped_column(Float, default=0.0)
     line_total: Mapped[float] = mapped_column(Float)
     returned_qty: Mapped[float] = mapped_column(Float, default=0.0)
+    warranty: Mapped[str] = mapped_column(String(64), default="")  # الكفالة وقت البيع
 
     product: Mapped[Product | None] = relationship()
 

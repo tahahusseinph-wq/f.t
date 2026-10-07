@@ -40,7 +40,7 @@ class _FtAppState extends ConsumerState<FtApp> {
       home = const HomeShell();
     }
     return MaterialApp(
-      title: 'مجموعة فاروق الطعمة',
+      title: 'مجموعة الطعمة التجارية',
       debugShowCheckedModeBanner: false,
       theme: buildTheme(Brightness.light),
       darkTheme: buildTheme(Brightness.dark),
@@ -62,12 +62,15 @@ class _Splash extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        backgroundColor: Brand.black,
-        body: Center(
+        body: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF7E99FF), Color(0xFF4462DA)]),
+          ),
+          alignment: Alignment.center,
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Image.asset('assets/images/logo.png', width: 140),
             const SizedBox(height: 24),
-            const CircularProgressIndicator(color: Brand.accent),
+            const CircularProgressIndicator(color: Colors.white),
           ]),
         ),
       );

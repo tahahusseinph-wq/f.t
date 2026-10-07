@@ -400,6 +400,7 @@ class ProductInput:
     notes: str = ""
     is_active: bool = True
     track_expiry: bool = False
+    warranty: str = ""                # مدة الكفالة (مثال: سنة)، فارغ = بدون كفالة
     initial_quantity: float = 0.0
     initial_warehouse_id: int | None = None
     initial_expiry: date | None = None
@@ -432,6 +433,7 @@ def _apply_input(session: Session, p: Product, data: ProductInput) -> None:
     p.min_stock, p.supplier_id, p.location = data.min_stock, data.supplier_id, data.location
     p.details, p.specs, p.notes = data.details, dict(data.specs or {}), data.notes
     p.is_active, p.track_expiry = data.is_active, data.track_expiry
+    p.warranty = (data.warranty or "").strip()[:64]
     p.variant_attrs, p.parent_id = dict(data.variant_attrs or {}), data.parent_id
     recompute_price(session, p)
 
@@ -502,7 +504,7 @@ def product_input_from(p: Product) -> ProductInput:
         model=p.model, unit=p.unit, cost_price=p.cost_price, margin=p.margin, price_locked=p.price_locked,
         sale_price=p.sale_price, min_stock=p.min_stock, supplier_id=p.supplier_id, location=p.location,
         details=p.details, specs=dict(p.specs or {}), notes=p.notes, is_active=p.is_active,
-        track_expiry=p.track_expiry, custom_values={fv.field_id: fv.value for fv in p.field_values},
+        track_expiry=p.track_expiry, warranty=p.warranty or "", custom_values={fv.field_id: fv.value for fv in p.field_values},
         tier_prices={tp.tier_id: tp.price for tp in p.tier_prices}, variant_attrs=dict(p.variant_attrs or {}),
         parent_id=p.parent_id,
     )
@@ -746,6 +748,12 @@ def delete_promotion(session: Session, promotion_id: int) -> None:
 # تمثيل المنتج حسب الصلاحيات (للموبايل والعرض)
 # =====================================================================
 
+def warranty_label(warranty: str) -> str:
+    """نص الكفالة للعرض: «كفالة سنة» أو «بدون كفالة»."""
+    warranty = (warranty or "").strip()
+    return f"كفالة {warranty}" if warranty else "بدون كفالة"
+
+
 def product_view(session: Session, p: Product, privileged: bool, tier_id: int | None = None,
                  currency_code: str | None = None) -> dict[str, Any]:
     """قاموس بالحقول المسموح رؤيتها فقط. الفلترة تتم هنا في السيرفر."""
@@ -775,6 +783,7 @@ def product_view(session: Session, p: Product, privileged: bool, tier_id: int | 
     add("brand", "الماركة", p.brand)
     add("model", "الموديل", p.model)
     add("unit", "الوحدة", p.unit)
+    add("warranty", "الكفالة", warranty_label(p.warranty))
     if show("sale_price"):
         data["sale_price"] = conv(price)
         data["base_price"] = conv(tier_price(session, p, tier_id))

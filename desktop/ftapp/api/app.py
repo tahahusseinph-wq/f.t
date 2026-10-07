@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 from ftapp import VERSION
 from ftapp.api.deps import is_lan_address
-from ftapp.api.routers import auth, dashboard, inventory, products, sales, sync, users
+from ftapp.api.routers import auth, dashboard, inventory, products, sales, settings, sync, users
 from ftapp.services.errors import NotFound, PermissionDenied, ServiceError
 
 log = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ API_PREFIX = "/api/v1"
 
 
 def create_app(lan_only: bool = True) -> FastAPI:
-    app = FastAPI(title="Farouk Toumma Trading API", version=VERSION, docs_url="/api/docs",
+    app = FastAPI(title="Al-Toumma Trading API", version=VERSION, docs_url="/api/docs",
                   openapi_url="/api/openapi.json", redoc_url=None)
 
     @app.middleware("http")
@@ -43,6 +43,6 @@ def create_app(lan_only: bool = True) -> FastAPI:
         log.exception("unhandled API error")
         return JSONResponse({"detail": "حدث خطأ غير متوقع في السيرفر"}, status_code=500)
 
-    for module in (auth, products, dashboard, sales, inventory, users, sync):
+    for module in (auth, products, dashboard, sales, inventory, users, settings, sync):
         app.include_router(module.router, prefix=API_PREFIX)
     return app

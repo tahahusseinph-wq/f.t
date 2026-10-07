@@ -15,6 +15,10 @@ class CartLine {
   double get total => price * quantity - discount;
 }
 
+/// طرق الدفع (نفس نسخة الكمبيوتر). النقدي وشام كاش يُسدَّدان كاملاً لحظة البيع.
+const paymentMethods = {'cash': 'نقدي', 'shamcash': 'شام كاش', 'credit': 'آجل', 'partial': 'جزئي'};
+const paidInFull = {'cash', 'shamcash'};
+
 class Cart extends ChangeNotifier {
   final List<CartLine> lines = [];
   Map<String, dynamic>? customer;
@@ -22,6 +26,7 @@ class Cart extends ChangeNotifier {
   String paymentMethod = 'cash';
   double paid = 0;
   String notes = '';
+  String shamRef = ''; // رقم عملية شام كاش
 
   bool get isEmpty => lines.isEmpty;
   double get subtotal => lines.fold(0, (s, l) => s + l.total);
@@ -61,6 +66,27 @@ class Cart extends ChangeNotifier {
 
   void update() => notifyListeners();
 
+  /// البيع الآجل أو الجزئي يحتاج زبوناً مسجلاً.
+  bool get needsCustomer => !paidInFull.contains(paymentMethod);
+
+  /// عند تغيير العملة أو سعر الصرف: كل المبالغ (بعملة العرض) تُضرب بنسبة التحويل.
+  void rescale(double factor) {
+    if (factor <= 0 || factor == 1) return;
+    for (final l in lines) {
+      l.price *= factor;
+      l.discount *= factor;
+    }
+    discount *= factor;
+    paid *= factor;
+    notifyListeners();
+  }
+
+  String get fullNotes {
+    final ref = shamRef.trim();
+    if (paymentMethod != 'shamcash' || ref.isEmpty) return notes;
+    return '$notes\nرقم عملية شام كاش: $ref'.trim();
+  }
+
   void clear() {
     lines.clear();
     customer = null;
@@ -68,6 +94,7 @@ class Cart extends ChangeNotifier {
     paid = 0;
     paymentMethod = 'cash';
     notes = '';
+    shamRef = '';
     notifyListeners();
   }
 
@@ -80,9 +107,9 @@ class Cart extends ChangeNotifier {
         if (customer != null) 'customer_id': customer!['id'],
         'discount': discount,
         'payment_method': paymentMethod,
-        if (paymentMethod != 'cash') 'paid': paid,
+        if (!paidInFull.contains(paymentMethod)) 'paid': paid,
         'currency_code': ?currency,
-        'notes': notes,
+        'notes': fullNotes,
       };
 }
 

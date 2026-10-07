@@ -7,9 +7,6 @@ import '../core/theme.dart';
 import '../state/session.dart';
 import '../state/sync.dart';
 import '../widgets/common.dart';
-import 'invoices_screen.dart';
-import 'notifications_screen.dart';
-import 'users_screen.dart';
 
 class MoreScreen extends ConsumerStatefulWidget {
   const MoreScreen({super.key});
@@ -37,26 +34,14 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
     final session = ref.watch(sessionProvider);
     final sync = ref.watch(syncProvider);
     final currencies = (session.meta['currencies'] as List?)?.cast<Map>() ?? [];
-    void go(Widget w) => Navigator.push(context, MaterialPageRoute(builder: (_) => w));
-    return ListView(padding: const EdgeInsets.all(16), children: [
-      Card(
+    return ListView(padding: const EdgeInsets.fromLTRB(12, 4, 12, 24), children: [
+      ClayCard(
+        padding: EdgeInsets.zero,
         child: ListTile(
           leading: CircleAvatar(backgroundColor: Brand.primary, child: Text(session.displayName.characters.firstOrNull ?? '؟', style: const TextStyle(color: Colors.white))),
           title: Text(session.displayName, style: const TextStyle(fontWeight: FontWeight.w700)),
           subtitle: Text(session.roleLabel),
         ),
-      ),
-      const SizedBox(height: 12),
-      SectionCard(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Column(children: [
-          if (session.can('dashboard.view') || session.can('inventory.view'))
-            ListTile(leading: const Icon(Icons.notifications_outlined), title: const Text('الإشعارات'), onTap: () => go(const NotificationsScreen())),
-          if (session.can('sales.create'))
-            ListTile(leading: const Icon(Icons.receipt_long_outlined), title: const Text('الفواتير'), onTap: () => go(const InvoicesScreen())),
-          if (session.can('users.manage'))
-            ListTile(leading: const Icon(Icons.people_outline), title: const Text('المستخدمون'), onTap: () => go(const UsersScreen())),
-        ]),
       ),
       const SizedBox(height: 12),
       SectionCard(
@@ -141,7 +126,7 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
         child: const Text('إلغاء ربط الجهاز', style: TextStyle(color: Brand.danger)),
       ),
       const SizedBox(height: 8),
-      Center(child: Text('مجموعة فاروق الطعمة التجارية • الإصدار 1.0.0', style: TextStyle(color: Theme.of(context).colorScheme.outline, fontSize: 12))),
+      Center(child: Text('مجموعة الطعمة التجارية • الإصدار 1.0.0', style: TextStyle(color: Theme.of(context).colorScheme.outline, fontSize: 12))),
     ]);
   }
 }

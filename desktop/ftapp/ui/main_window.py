@@ -237,7 +237,7 @@ class MainWindow(QMainWindow):
         names = QVBoxLayout(self.brand_names)
         names.setContentsMargins(0, 0, 0, 0)
         names.setSpacing(0)
-        n1 = QLabel("فاروق الطعمة")
+        n1 = QLabel("مجموعة الطعمة التجارية")
         n1.setObjectName("brandName")
         n2 = QLabel(APP_NAME_EN)
         n2.setObjectName("brandSub")

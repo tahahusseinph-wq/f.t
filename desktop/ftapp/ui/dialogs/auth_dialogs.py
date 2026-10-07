@@ -161,7 +161,7 @@ class SetupWizard(QDialog):
 
     def _build_account(self) -> None:
         _, f = self._page()
-        self.full_name = QLineEdit("فاروق الطعمة")
+        self.full_name = QLineEdit("مدير النظام")
         self.username = QLineEdit("admin")
         self.username.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
         self.password = password_field("8 أحرف على الأقل، أحرف وأرقام")

@@ -121,7 +121,8 @@ class SettingsPage(Page):
         self.i_checks = {k: QCheckBox(v) for k, v in (
             ("show_code", "عمود كود الصنف"), ("show_unit", "إظهار الوحدة مع الكمية"),
             ("show_seller", "اسم البائع"), ("show_qr", "رمز QR للفاتورة"),
-            ("show_signatures", "خانات التوقيع"), ("show_stamp", "خانة الختم"))}
+            ("show_signatures", "خانات التوقيع"), ("show_stamp", "خانة الختم"),
+            ("show_warranty", "عمود الكفالة"))}
         checks = QWidget()
         grid = QGridLayout(checks)
         grid.setContentsMargins(0, 0, 0, 0)

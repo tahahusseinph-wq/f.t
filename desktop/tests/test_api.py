@@ -122,3 +122,34 @@ def test_server_runs(db, admin):
     finally:
         srv.stop()
     assert '"id":"abc"' in pairing_payload("abc", "FT", 8765) and local_ips()
+
+
+def test_company_settings_and_rate_from_mobile(client, db, admin, product_factory):
+    h = login(client)
+    r = client.put("/api/v1/settings/company", headers=h,
+                   json={"facebook_url": "ft.trading", "shamcash_account": "SC-1", "invoice_details": "سطر 1\nسطر 2",
+                         "name": "  "})
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["facebook_url"] == "ft.trading" and data["shamcash_account"] == "SC-1"
+    assert data["name"]  # الاسم الفارغ لا يمسح اسم المنشأة
+    assert client.get("/api/v1/settings/company", headers=h).json()["invoice_details"] == "سطر 1\nسطر 2"
+
+    syp = next(c for c in client.get("/api/v1/meta", headers=h).json()["currencies"] if not c["is_base"])
+    r = client.put(f"/api/v1/currencies/{syp['code']}/rate", headers=h, json={"rate": 16000})
+    assert r.status_code == 200 and r.json()["rate"] == 16000
+    assert client.put(f"/api/v1/currencies/{syp['code']}/rate", headers=h, json={"rate": 0}).status_code == 422
+
+    p = product_factory("شاحن", cost=10, margin=0, qty=5)
+    r = client.post("/api/v1/sales", headers=h, json={"lines": [{"product_id": p.id, "quantity": 1}],
+                                                     "payment_method": "shamcash", "notes": "رقم عملية شام كاش: 9"})
+    assert r.status_code == 200, r.text
+    inv = r.json()
+    assert inv["payment_method"] == "shamcash" and inv["remaining"] == 0 and "9" in inv["notes"]
+
+    auth_service.create_user(db, admin, "seller1", "Seller123", "seller")
+    db.commit()
+    hs = login(client, "seller1", "Seller123")
+    assert client.get("/api/v1/settings/company", headers=hs).status_code == 200
+    assert client.put("/api/v1/settings/company", headers=hs, json={"phone": "1"}).status_code == 403
+    assert client.put(f"/api/v1/currencies/{syp['code']}/rate", headers=hs, json={"rate": 1}).status_code == 403

@@ -45,22 +45,28 @@ class AlertTile extends ConsumerWidget {
 }
 
 class NotificationsScreen extends ConsumerWidget {
-  const NotificationsScreen({super.key});
+  const NotificationsScreen({super.key, this.embedded = false});
+
+  /// داخل الهيكل الرئيسي (بدون شريط عنوان خاص)
+  final bool embedded;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final data = ref.watch(notificationsProvider);
+    Future<void> readAll() async {
+      await ref.read(sessionProvider).api!.post('/notifications/read-all');
+      ref.invalidate(notificationsProvider);
+    }
+
     return Scaffold(
-      appBar: AppBar(title: const Text('الإشعارات'), actions: [
-        IconButton(
-          tooltip: 'تحديد الكل كمقروء',
-          icon: const Icon(Icons.done_all),
-          onPressed: () async {
-            await ref.read(sessionProvider).api!.post('/notifications/read-all');
-            ref.invalidate(notificationsProvider);
-          },
-        ),
-      ]),
+      appBar: embedded
+          ? null
+          : AppBar(title: const Text('الإشعارات'), actions: [
+              IconButton(tooltip: 'تحديد الكل كمقروء', icon: const Icon(Icons.done_all), onPressed: readAll),
+            ]),
+      floatingActionButton: embedded
+          ? FloatingActionButton.extended(onPressed: readAll, icon: const Icon(Icons.done_all), label: const Text('تحديد الكل كمقروء'))
+          : null,
       body: RefreshIndicator(
         onRefresh: () async => ref.invalidate(notificationsProvider),
         child: data.when(

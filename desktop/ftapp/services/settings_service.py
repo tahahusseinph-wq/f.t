@@ -29,6 +29,7 @@ BUILTIN_FIELDS: dict[str, str] = {
     "specs": "المواصفات",
     "notes": "ملاحظات",
     "images": "الصور",
+    "warranty": "الكفالة",
     "tier_prices": "أسعار الشرائح",
 }
 
@@ -36,14 +37,14 @@ DEFAULT_VISIBILITY = {
     "name": True, "code": True, "barcode": True, "category": True, "brand": True, "model": True,
     "unit": True, "sale_price": True, "cost_price": False, "margin": False, "quantity": False,
     "min_stock": False, "supplier": False, "location": False, "details": True, "specs": True,
-    "notes": False, "images": True, "tier_prices": False,
+    "notes": False, "images": True, "warranty": True, "tier_prices": False,
 }
 
 DEFAULTS: dict[str, Any] = {
     "setup_done": False,
     "company": {
-        "name": "مجموعة فاروق الطعمة التجارية",
-        "name_en": "Farouk Toumma Trading Group",
+        "name": "مجموعة الطعمة التجارية",
+        "name_en": "Al-Toumma Trading Group",
         "address": "",
         "phone": "",
         "email": "",
@@ -75,7 +76,7 @@ DEFAULTS: dict[str, Any] = {
         "quotation_title": "عرض سعر",
         "return_title": "إشعار مرتجع",
         "accent_color": "#1565C0",
-        "terms": "البضاعة المباعة لا تُرد ولا تُستبدل إلا بموجب هذه الفاتورة وخلال 7 أيام.",
+        "terms": "البضاعة التي تُباع لا تُرد ولا تُستبدل أبداً.",
         "payment_info": "",   # بيانات الدفع/الحساب البنكي تُطبع أسفل الفاتورة
         "show_code": True,
         "show_unit": True,
@@ -83,6 +84,7 @@ DEFAULTS: dict[str, Any] = {
         "show_qr": True,
         "show_signatures": True,
         "show_stamp": True,
+        "show_warranty": True,
     },
     "updates": {"check_url": "", "auto_check": True},
     "code_format": {"separator": "-", "serial_digits": 4},
