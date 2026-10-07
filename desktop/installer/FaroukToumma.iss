@@ -2,7 +2,7 @@
 #define AppName "مجموعة الطعمة التجارية"
 #define AppNameEn "Al-Toumma Trading Group"
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "1.1.0"
 #endif
 
 [Setup]
@@ -36,6 +36,12 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "..\dist\FaroukToumma\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[InstallDelete]
+; اختصارات الاسم القديم: التحديث يبقى في نفس المجلد، لكن الاختصارات القديمة كانت تظهر كتطبيق ثانٍ
+#define OldAppName "مجموعة فاروق الطعمة التجارية"
+Type: files; Name: "{autodesktop}\{#OldAppName}.lnk"
+Type: filesandordirs; Name: "{autoprograms}\{#OldAppName}"
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\FaroukToumma.exe"

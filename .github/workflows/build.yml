@@ -29,6 +29,8 @@ jobs:
 
   mobile:
     runs-on: ubuntu-latest
+    outputs:
+      signed: ${{ steps.signing.outputs.signed }}
     defaults:
       run:
         working-directory: mobile
@@ -45,6 +47,26 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
+      # مفتاح توقيع ثابت (من أسرار المستودع) حتى يتحدّث التطبيق فوق النسخة السابقة بدل رفض التثبيت
+      - name: Android signing key
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > android/app/upload-keystore.jks
+            {
+              echo "storePassword=$KEYSTORE_PASSWORD"
+              echo "keyPassword=$KEYSTORE_PASSWORD"
+              echo "keyAlias=upload"
+              echo "storeFile=upload-keystore.jks"
+            } > android/key.properties
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::لم تُضف أسرار مفتاح التوقيع (ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD): لن يُنشر ملف APK في مجلد تطبيقات"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
       - run: flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
@@ -94,7 +116,11 @@ jobs:
         run: |
           mkdir -p "تطبيقات/ويندوز" "تطبيقات/اندرويد"
           cp _artifacts/FaroukToumma-setup/FaroukToumma-Setup.exe "تطبيقات/ويندوز/FaroukToumma-Setup.exe"
-          cp _artifacts/FaroukToumma-android/app-release.apk "تطبيقات/اندرويد/FaroukToumma.apk"
+          if [ "${{ needs.mobile.outputs.signed }}" = "true" ]; then
+            cp _artifacts/FaroukToumma-android/app-release.apk "تطبيقات/اندرويد/FaroukToumma.apk"
+          else
+            echo "::warning::ملف APK غير موقّع بالمفتاح الثابت، لم يُنشر"
+          fi
           rm -rf _artifacts
           ls -la تطبيقات/*
       - name: Commit
