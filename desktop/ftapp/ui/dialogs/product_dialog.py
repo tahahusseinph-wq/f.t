@@ -1,13 +1,15 @@
 """نافذة إضافة/تعديل منتج بكل تفاصيله."""
 from __future__ import annotations
 
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QDate, QSize, Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import QBuffer, QDate, QIODevice, QSize, Qt
+from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDateEdit, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout,
+                               QFrame,
                                QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QPlainTextEdit, QScrollArea, QSpinBox, QTableWidget,
                                QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
@@ -16,7 +18,7 @@ from ftapp.core.utils import fmt_qty
 from ftapp.models import CustomField, Product
 from ftapp.services import (catalog_service, codegen_service, currency_service, gemini_service, inventory_service,
                             settings_service)
-from ftapp.services.errors import ValidationError
+from ftapp.services.errors import ServiceError, ValidationError
 from ftapp.ui import icons
 from ftapp.ui.context import ctx
 from ftapp.ui.theme import tokens
@@ -138,6 +140,8 @@ class ProductDialog(QDialog):
         self.stock_badge = QLabel()
         head.addWidget(self.stock_badge)
         root.addLayout(head)
+        if ctx.can("ai.use"):
+            root.addWidget(self._image_search_bar())
 
         self.tabs = QTabWidget()
         root.addWidget(self.tabs, 1)
@@ -380,7 +384,7 @@ class ProductDialog(QDialog):
         row = QHBoxLayout()
         row.addWidget(button("إضافة صورة", "plus", on_click=self._add_image))
         if ctx.can("ai.use"):
-            row.addWidget(button("تعرّف على المنتج من صورة", "camera", "soft", on_click=self._identify_image))
+            row.addWidget(button("البحث بالصورة", "camera", "soft", on_click=self._identify_image))
         row.addWidget(button("حذف المحددة", "trash", on_click=self._remove_image))
         row.addStretch(1)
         lay.addLayout(row)
@@ -680,32 +684,124 @@ class ProductDialog(QDialog):
                 self.pending_images = [p for p in self.pending_images if p[0] != Path(path).read_bytes()]
             self.images.takeItem(self.images.row(item))
 
+    # ---------------- البحث عن معلومات العنصر بالصورة ----------------
+    def _image_search_bar(self) -> QWidget:
+        bar = QFrame()
+        bar.setObjectName("card")
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(12, 8, 12, 8)
+        self.img_search_btn = button("البحث عن معلومات العنصر بالصورة", "camera", "primary",
+                                     on_click=self._identify_image)
+        lay.addWidget(self.img_search_btn)
+        self.img_search_status = muted("اختر صورة المنتج من الملفات فيجلب الذكاء الاصطناعي اسمه وماركته "
+                                       "وموديله ووصفه ومواصفاته وقسمه ويضيف صورته تلقائياً.")
+        self.img_search_status.setWordWrap(True)
+        lay.addWidget(self.img_search_status, 1)
+        return bar
+
+    @staticmethod
+    def _prepare_image(path: str) -> tuple[bytes, str]:
+        """يصغّر الصورة الكبيرة ويحوّلها لصيغة يقبلها Gemini (JPEG أو PNG للشفافة)."""
+        img = QImage(path)
+        if img.isNull():
+            raise ValueError("تعذر قراءة الصورة. اختر ملف صورة صالحاً (JPG أو PNG أو WEBP).")
+        if max(img.width(), img.height()) > 1600:
+            img = img.scaled(1600, 1600, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        fmt, mime = ("PNG", "image/png") if img.hasAlphaChannel() else ("JPG", "image/jpeg")
+        buf = QBuffer()
+        buf.open(QIODevice.OpenModeFlag.WriteOnly)
+        img.save(buf, fmt, 90)
+        return bytes(buf.data()), mime
+
     def _identify_image(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "صورة المنتج", "", "Images (*.png *.jpg *.jpeg *.webp)")
+        path, _ = QFileDialog.getOpenFileName(self, "اختر صورة المنتج", "",
+                                              "Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)")
         if not path:
             return
-        data = Path(path).read_bytes()
-        mime = "image/png" if path.lower().endswith(".png") else ("image/webp" if path.lower().endswith(".webp") else "image/jpeg")
-        Toast.show_message(self, "⏳ جارِ التعرف على المنتج من الصورة...")
+        try:
+            data, mime = self._prepare_image(path)
+        except ValueError as exc:
+            error(self, str(exc))
+            return
+        with ctx.session() as (s, _):
+            field_names = [f.name for f in catalog_service.list_fields(s, all_fields=True)]
+            categories = [c.name for c in catalog_service.list_categories(s)]
+        hint = " ".join(x for x in (self.name.text().strip(), self.brand.currentText().strip(),
+                                    self.model.text().strip()) if x)
+        self.img_search_btn.setEnabled(False)
+        self.img_search_status.setText("⏳ جارِ التعرف على المنتج وجلب معلوماته من الصورة...")
 
-        def done(res) -> None:
-            if not self.name.text().strip():
-                self.name.setText(res.name)
-            if res.brand and not self.brand.currentText():
-                self.brand.setCurrentText(res.brand)
-            if res.model and not self.model.text():
-                self.model.setText(res.model)
-            if res.barcode and not self.barcode.text():
-                self.barcode.setText(res.barcode)
-            if res.description and not self.details.toPlainText().strip():
-                self.details.setPlainText(res.description)
-            for spec in res.specs:
-                self._add_spec(spec.name, spec.value)
-            if self.product_id is None:
-                self.pending_images.append((data, Path(path).suffix.lower()))
+        def work():
+            from ftapp.core.db import session_scope
+            with session_scope() as s:
+                return gemini_service.product_info_from_image(
+                    s, data, mime, hint=f"قد يكون المنتج: {hint}" if hint else "",
+                    field_names=field_names, categories=categories)
+
+        def done(info) -> None:
+            self.img_search_btn.setEnabled(True)
+            self.img_search_status.setText("")
+            if not info.name.strip():
+                error(self, "لم يتمكن الذكاء الاصطناعي من التعرف على المنتج. جرّب صورة أوضح تظهر فيها الماركة أو العلبة.")
+                return
+            from ftapp.ui.dialogs.ai_dialogs import ImageProductPreview
+            dlg = ImageProductPreview(self, info, [ed.field for ed in self.field_editors.values()], data, categories)
+            if dlg.exec():
+                self._apply_image_info(info, dlg.selection(), path)
+
+        def fail(msg: str) -> None:
+            self.img_search_btn.setEnabled(True)
+            self.img_search_status.setText("")
+            error(self, msg)
+        run_async(work, done, fail)
+
+    def _set_category_by_name(self, name: str) -> None:
+        idx = next((i for i in range(self.category.count()) if self.category.itemText(i).strip(" └") == name), -1)
+        if idx < 0:
+            try:
+                with ctx.session() as (s, u):
+                    cat_id = catalog_service.save_category(s, u, name).id
+                    self.cats = category_items(s)
+            except ServiceError as exc:
+                error(self, f"تعذر إنشاء القسم «{name}»: {exc}")
+                return
+            self.category.blockSignals(True)
+            fill_combo(self.category, self.cats, placeholder="— بدون قسم —")
+            self.category.blockSignals(False)
+            idx = self.category.findData(cat_id)
+        if idx >= 0:
+            self.category.setCurrentIndex(idx)
+
+    def _apply_image_info(self, info, sel: dict[str, Any], path: str) -> None:
+        basic = sel.get("basic", {})
+        if "name" in basic:
+            self.name.setText(basic["name"])
+        if "brand" in basic:
+            self.brand.setCurrentText(basic["brand"])
+        if "model" in basic:
+            self.model.setText(basic["model"])
+        if "barcode" in basic:
+            self.barcode.setText(re.sub(r"\D", "", basic["barcode"]) or basic["barcode"])
+        if "unit" in basic:
+            self.unit.setCurrentText(basic["unit"])
+        # تغيير القسم يعيد بناء الخانات المخصصة، فتُطابق قيمها من جديد مع احترام ما أُلغي تحديده في المعاينة
+        shown = set(gemini_service.match_custom_fields(info, [ed.field for ed in self.field_editors.values()]))
+        unchecked = shown - set(sel.get("fields", {}))
+        if "category" in basic:
+            self._set_category_by_name(basic["category"])
+        sel["fields"] = {fid: v for fid, v in gemini_service.match_custom_fields(
+            info, [ed.field for ed in self.field_editors.values()]).items() if fid not in unchecked}
+        self._apply_ai(sel)
+        if sel.get("add_image"):
+            if self.product_id:
+                with ctx.session() as (s, _):
+                    img = catalog_service.add_image(s, self.product_id, path)
+                    self._add_image_item(str(catalog_service.image_path(img)), img.id)
+            else:
+                self.pending_images.append((Path(path).read_bytes(), Path(path).suffix.lower() or ".jpg"))
                 self._add_image_item(path, None)
-            Toast.show_message(self, f"تم التعرف: {res.name} (الثقة: {res.confidence})", "success")
-        run_async(lambda: gemini_service.identify_from_image(None, data, mime), done, lambda m: error(self, m))
+        if not self.code.text().strip() and self.product_id is None:
+            self._gen_code()
 
     def _adjust_stock(self) -> None:
         from ftapp.ui.dialogs.inventory_dialogs import StockAdjustDialog

@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QHeaderView, QLabel, QPlainTextEdit, QTableWidget,
                                QTableWidgetItem, QVBoxLayout)
 
@@ -83,4 +84,83 @@ class AIDetailsPreview(QDialog):
                 out["fields"][key] = value
         if self.use_cat.isChecked():
             out["category"] = self.details.suggested_category
+        return out
+
+
+class ImageProductPreview(AIDetailsPreview):
+    """نتيجة «البحث عن معلومات العنصر بالصورة»: البيانات الأساسية + التفاصيل + الصورة، مع اختيار ما يُطبَّق."""
+
+    BASICS = (("name", "اسم المنتج"), ("brand", "الماركة"), ("model", "الموديل"), ("barcode", "الباركود"),
+              ("unit", "الوحدة"), ("category", "القسم"))
+
+    def __init__(self, parent, info: gemini_service.ImageProductInfo, fields: list[Any], image: bytes,
+                 categories: list[str]) -> None:
+        super().__init__(parent, info, fields)
+        self.info = info
+        self.setWindowTitle("معلومات المنتج من الصورة")
+        self.resize(820, 760)
+        lay: QVBoxLayout = self.layout()  # type: ignore[assignment]
+        lay.itemAt(0).widget().setText("🔍 نتيجة البحث بالصورة — اختر ما تريد تطبيقه")
+        self.use_cat.hide()  # القسم ضمن البيانات الأساسية
+
+        top = QHBoxLayout()
+        pic = QLabel()
+        pm = QPixmap()
+        pm.loadFromData(image)
+        pic.setPixmap(pm.scaled(170, 170, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        pic.setFixedSize(176, 176)
+        pic.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        pic.setStyleSheet("background: white; border: 1px solid #CFD8DC; border-radius: 8px;")
+        side = QVBoxLayout()
+        side.addWidget(pic)
+        self.use_image = QCheckBox("إضافة الصورة للمنتج")
+        self.use_image.setChecked(True)
+        side.addWidget(self.use_image)
+        side.addStretch(1)
+        top.addLayout(side)
+
+        values = {"name": info.name, "brand": info.brand, "model": info.model, "barcode": info.barcode,
+                  "unit": info.unit, "category": info.suggested_category}
+        rows = [(k, label, values[k]) for k, label in self.BASICS if values[k].strip()]
+        self.basics = QTableWidget(len(rows), 3)
+        self.basics.setHorizontalHeaderLabels(["تطبيق", "البيان", "القيمة"])
+        self.basics.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.basics.verticalHeader().setVisible(False)
+        self.basics.setColumnWidth(0, 56)
+        self.basics.setColumnWidth(1, 190)
+        known = {c.strip() for c in categories}
+        for r, (key, label, value) in enumerate(rows):
+            cb = QTableWidgetItem()
+            cb.setFlags(cb.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            cb.setCheckState(Qt.CheckState.Checked)
+            cb.setData(Qt.ItemDataRole.UserRole, key)
+            self.basics.setItem(r, 0, cb)
+            if key == "category" and value.strip() not in known:
+                label += " (جديد — سيُنشأ)"
+            self.basics.setItem(r, 1, QTableWidgetItem(label))
+            self.basics.setItem(r, 2, QTableWidgetItem(value))
+        self.basics.setMinimumHeight(min(260, 34 * (len(rows) + 1) + 6))
+        top.addWidget(self.basics, 1)
+        lay.insertLayout(2, top)
+
+        notes = []
+        if info.estimated_price_usd:
+            notes.append(f"السعر التقريبي في السوق: {info.estimated_price_usd:,.2f} $ (للاسترشاد فقط، لا يُطبَّق تلقائياً)")
+        if info.keywords:
+            notes.append("كلمات البحث: " + "، ".join(info.keywords))
+        if notes:
+            lay.insertWidget(3, muted("\n".join(notes)))
+        if info.warranty:
+            self.desc.appendPlainText(f"الكفالة: {info.warranty}")
+
+    def selection(self) -> dict[str, Any]:
+        out = super().selection()
+        out.pop("category", None)
+        out["basic"] = {}
+        for r in range(self.basics.rowCount()):
+            item = self.basics.item(r, 0)
+            value = self.basics.item(r, 2).text().strip()
+            if item.checkState() == Qt.CheckState.Checked and value:
+                out["basic"][item.data(Qt.ItemDataRole.UserRole)] = value
+        out["add_image"] = self.use_image.isChecked()
         return out

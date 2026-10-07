@@ -61,6 +61,17 @@ class IdentifiedProduct(BaseModel):
     confidence: str = "medium"
 
 
+class ImageProductInfo(ProductDetails):
+    """كل معلومات المنتج المستخرجة من صورته (التعرف + التفاصيل الكاملة) بطلب واحد."""
+    name: str = Field(default="", description="اسم المنتج بالعربية كما يُعرض في المتجر، مع الماركة والموديل")
+    brand: str = Field(default="", description="الماركة بالإنكليزية")
+    model: str = Field(default="", description="رقم أو اسم الموديل")
+    barcode: str = Field(default="", description="أرقام الباركود إن كانت ظاهرة في الصورة فقط")
+    unit: str = Field(default="", description="وحدة البيع: قطعة، علبة، كرتونة، متر، كيلو، لتر، طقم...")
+    estimated_price_usd: float = Field(default=0, description="سعر مفرق تقريبي بالدولار في السوق، 0 إن لم تكن متأكداً")
+    warranty: str = Field(default="", description="الكفالة المعتادة إن كانت معروفة")
+
+
 class InvoiceLine(BaseModel):
     name: str
     code: str = ""
@@ -232,6 +243,27 @@ def identify_from_image(session: Session | None, image: bytes, mime: str = "imag
         prompt += f" ملاحظة من المستخدم: {hint}"
     return _generate(session, [types.Part.from_bytes(data=image, mime_type=mime), prompt],  # type: ignore[return-value]
                      IdentifiedProduct, SYSTEM_PRODUCT)
+
+
+def product_info_from_image(session: Session | None, image: bytes, mime: str = "image/jpeg", hint: str = "",
+                            field_names: list[str] | None = None, categories: list[str] | None = None
+                            ) -> ImageProductInfo:
+    """يتعرف على المنتج من صورته ويجلب كل معلوماته: الاسم، الماركة، الموديل، الوصف، المواصفات،
+    الاستخدامات، المنشأ، القسم، الوحدة، وقيم الخانات المخصصة."""
+    from google.genai import types
+
+    prompt = ("تعرّف على المنتج الظاهر في الصورة بدقة (اقرأ أي كتابة أو شعار أو رقم موديل ظاهر)، "
+              "ثم أعطني كل معلوماته: اسمه وماركته وموديله، وصفاً تسويقياً، المواصفات الفنية الكاملة، "
+              "الاستخدامات، بلد المنشأ، الوحدة المناسبة للبيع، كلمات بحث مفتاحية، والكفالة المعتادة.")
+    if categories:
+        prompt += ("\nاختر القسم المقترح من هذه الأقسام الموجودة إن كان أحدها مناسباً (اكتبه بالضبط)، "
+                   "وإلا اقترح اسم قسم جديد: " + "، ".join(categories))
+    if field_names:
+        prompt += "\nواملأ هذه الخانات إن أمكن (بنفس الأسماء بالضبط): " + "، ".join(field_names)
+    if hint:
+        prompt += f"\nملاحظة من المستخدم: {hint}"
+    return _generate(session, [types.Part.from_bytes(data=image, mime_type=mime), prompt],  # type: ignore[return-value]
+                     ImageProductInfo, SYSTEM_PRODUCT)
 
 
 def parse_supplier_invoice(session: Session | None, image: bytes, mime: str = "image/jpeg") -> SupplierInvoice:

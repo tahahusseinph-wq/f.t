@@ -101,3 +101,52 @@ def test_pos_checkout_with_typed_customer_creates_invoice(app, db, admin, produc
     assert inv.customer_id == cust.id and cust.address == "حمص - الوعر"
     assert inv.customer_name == "مؤسسة الأمل" and inv.customer_address == "حمص - الوعر"
     assert not page.cart and page.m_existing.isChecked() and not page.c_name.text()
+
+
+def test_product_info_from_image_fills_dialog(app, db, admin, monkeypatch, tmp_path):
+    import json
+    from types import SimpleNamespace
+
+    from PySide6.QtGui import QColor, QImage
+
+    from ftapp.models import Category, Product
+    from ftapp.services import catalog_service, gemini_service
+    from ftapp.ui.context import ctx
+    from ftapp.ui.dialogs.ai_dialogs import ImageProductPreview
+    from ftapp.ui.dialogs.product_dialog import ProductDialog
+
+    payload = {"name": "سماعة Xiaomi Redmi Buds 4", "brand": "Xiaomi", "model": "Buds 4", "barcode": "6934177 79",
+               "unit": "قطعة", "suggested_category": "سماعات", "description": "سماعة لاسلكية بعزل ضوضاء.",
+               "specs": [{"name": "البطارية", "value": "30 ساعة"}], "origin_country": "الصين",
+               "custom_fields": [], "confidence": "high", "estimated_price_usd": 25, "warranty": "سنة"}
+    seen = {}
+
+    class Models:
+        def generate_content(self, model, contents, config):
+            seen["contents"] = contents
+            return SimpleNamespace(parsed=None, text=json.dumps(payload, ensure_ascii=False))
+
+    monkeypatch.setattr(gemini_service, "_client", lambda key=None: SimpleNamespace(models=Models()))
+    img_path = tmp_path / "buds.png"
+    img = QImage(64, 64, QImage.Format.Format_RGB32)
+    img.fill(QColor("white"))
+    img.save(str(img_path))
+    data, mime = ProductDialog._prepare_image(str(img_path))
+    info = gemini_service.product_info_from_image(db, data, mime, categories=["هواتف"])
+    assert info.brand == "Xiaomi" and "هواتف" in seen["contents"][1]
+
+    ctx.set_user(admin)
+    dlg = ProductDialog(None)
+    preview = ImageProductPreview(dlg, info, [], data, ["هواتف"])
+    sel = preview.selection()
+    assert sel["basic"]["category"] == "سماعات" and sel["add_image"]
+    dlg._apply_image_info(info, sel, str(img_path))
+    assert dlg.name.text() == payload["name"] and dlg.model.text() == "Buds 4"
+    assert dlg.barcode.text() == "693417779" and dlg.category.currentText().strip(" └") == "سماعات"
+    assert "البطارية" in dlg._collect_specs() and "الكفالة: سنة" in dlg.details.toPlainText()
+    assert len(dlg.pending_images) == 1
+    dlg._save()
+    db.expire_all()
+    p = db.query(Product).filter_by(model="Buds 4").one()
+    assert p.category_id == db.query(Category).filter_by(name="سماعات").one().id
+    assert len(p.images) == 1 and catalog_service.image_path(p.images[0]).exists()
