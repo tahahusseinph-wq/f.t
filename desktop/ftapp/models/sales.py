@@ -37,6 +37,7 @@ class Invoice(Base, TimestampMixin):
     customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
     customer_name: Mapped[str] = mapped_column(String(128), default="")
     customer_phone: Mapped[str] = mapped_column(String(32), default="")
+    customer_address: Mapped[str] = mapped_column(String(256), default="")
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     warehouse_id: Mapped[int | None] = mapped_column(ForeignKey("warehouses.id", ondelete="SET NULL"), nullable=True)
     shift_id: Mapped[int | None] = mapped_column(ForeignKey("shifts.id", ondelete="SET NULL"), nullable=True)

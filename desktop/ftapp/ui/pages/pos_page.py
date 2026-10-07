@@ -3,9 +3,11 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import (QButtonGroup, QComboBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout,
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout,
                                QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                                QPushButton, QRadioButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+
+from sqlalchemy import select
 
 from ftapp.core.utils import fmt_money, fmt_qty
 from ftapp.models import Currency, Customer, Product
@@ -27,18 +29,19 @@ class CustomerQuickDialog(FormDialog):
         self.name = self.line("الاسم *")
         self.phone = self.line("الهاتف")
         self.phone.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        self.address = self.line("العنوان")
         self.tier = self.combo("شريحة السعر", tiers)
         self.on_save = self._do
         self.finish_layout()
 
     def _do(self):
         with ctx.session() as (s, _):
-            return sales_service.save_customer(s, self.name.text(), self.phone.text(), tier_id=self.tier.currentData()).id
+            return sales_service.save_customer(s, self.name.text(), self.phone.text(), self.address.text().strip(), tier_id=self.tier.currentData()).id
 
 
 class POSPage(Page):
     title = "نقطة البيع"
-    subtitle = "F2 للبحث • F9 لإتمام البيع • Delete لحذف سطر"
+    subtitle = "كل عملية بيع تُصدر فاتورة فوراً • F2 للبحث • F9 لإتمام البيع وإصدار الفاتورة • Delete لحذف سطر"
     COLS = ["المنتج", "الكمية", "السعر", "الخصم", "الإجمالي", ""]
 
     def __init__(self) -> None:
@@ -91,9 +94,24 @@ class POSPage(Page):
         body.addWidget(lw, 3)
 
         # ===== لوحة الدفع =====
-        panel = Card("الزبون والدفع", icon_name="wallet")
+        panel = Card("بيع جديد — الزبون والفاتورة", icon_name="wallet")
         panel.setMinimumWidth(300 if compact() else 380)
         panel.setMaximumWidth(440)
+        # --- الزبون: من القائمة أو إدخال تفاصيل زبون جديد ---
+        mrow = QHBoxLayout()
+        self.cust_mode = QButtonGroup(self)
+        self.m_existing = QRadioButton("زبون من القائمة")
+        self.m_details = QRadioButton("تفاصيل زبون جديد")
+        self.m_existing.setChecked(True)
+        for i, rb in enumerate((self.m_existing, self.m_details)):
+            self.cust_mode.addButton(rb, i)
+            mrow.addWidget(rb)
+        mrow.addStretch(1)
+        self.m_existing.toggled.connect(self._cust_mode_changed)
+        panel.body.addLayout(mrow)
+        self.existing_box = QWidget()
+        ex = QVBoxLayout(self.existing_box)
+        ex.setContentsMargins(0, 0, 0, 0)
         crow = QHBoxLayout()
         self.customer = QComboBox()
         self.customer.setEditable(True)
@@ -101,9 +119,29 @@ class POSPage(Page):
         self.customer.currentIndexChanged.connect(self._customer_changed)
         crow.addWidget(self.customer, 1)
         crow.addWidget(button("", "plus", on_click=self._new_customer, tooltip="زبون جديد"))
-        panel.body.addLayout(crow)
+        ex.addLayout(crow)
         self.customer_info = muted("")
-        panel.add(self.customer_info)
+        self.customer_info.setWordWrap(True)
+        ex.addWidget(self.customer_info)
+        panel.add(self.existing_box)
+        self.details_box = QWidget()
+        dg = QGridLayout(self.details_box)
+        dg.setContentsMargins(0, 0, 0, 0)
+        self.c_name = QLineEdit()
+        self.c_name.setPlaceholderText("اسم الزبون أو الجهة")
+        self.c_phone = QLineEdit()
+        self.c_phone.setPlaceholderText("09xxxxxxxx")
+        self.c_phone.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        self.c_address = QLineEdit()
+        self.c_address.setPlaceholderText("المدينة، الشارع ...")
+        self.c_save = QCheckBox("حفظ الزبون في قائمة الزبائن")
+        self.c_save.setChecked(True)
+        for r, (label, w) in enumerate((("الاسم", self.c_name), ("الهاتف", self.c_phone), ("العنوان", self.c_address))):
+            dg.addWidget(QLabel(label), r, 0)
+            dg.addWidget(w, r, 1)
+        dg.addWidget(self.c_save, 3, 0, 1, 2)
+        self.details_box.hide()
+        panel.add(self.details_box)
         grid = QGridLayout()
         self.tier = QComboBox()
         self.tier.currentIndexChanged.connect(self._recalc)
@@ -177,7 +215,7 @@ class POSPage(Page):
         self.notes.setPlaceholderText("ملاحظات على الفاتورة")
         panel.add(self.notes)
         panel.body.addStretch(1)
-        self.pay_btn = button("إتمام البيع  (F9)", "check", "primary", on_click=self._checkout)
+        self.pay_btn = button("إتمام البيع وإصدار الفاتورة  (F9)", "check", "primary", on_click=self._checkout)
         self.pay_btn.setMinimumHeight(52)
         self.pay_btn.setStyleSheet("font-size: 13pt;")
         panel.add(self.pay_btn)
@@ -312,8 +350,14 @@ class POSPage(Page):
     def _cur(self, s) -> Currency:
         return s.get(Currency, self.currency.currentData()) or currency_service.display(s)
 
-    def _request(self, s) -> sales_service.SaleRequest:
+    def _request(self, s, customer_id: int | None = None) -> sales_service.SaleRequest:
+        """customer_id: زبون حُفظ للتو من «تفاصيل زبون جديد» (عند الإتمام فقط)."""
         cur = self._cur(s)
+        name = phone = address = ""
+        if self.m_details.isChecked():
+            name, phone, address = self.c_name.text().strip(), self.c_phone.text().strip(), self.c_address.text().strip()
+        else:
+            customer_id = self.customer.currentData()
         lines = [sales_service.CartLine(l["pid"], l["qty"],
                                         currency_service.to_base(l["price"], cur) if l["price"] is not None else None,
                                         currency_service.to_base(l["discount"], cur)) for l in self.cart]
@@ -321,7 +365,8 @@ class POSPage(Page):
                   else "credit" if self.p_credit.isChecked() else "partial")
         full = method in sales_service.PAID_IN_FULL
         return sales_service.SaleRequest(
-            lines=lines, customer_id=self.customer.currentData(), tier_id=self.tier.currentData(),
+            lines=lines, customer_id=customer_id, customer_name=name, customer_phone=phone,
+            customer_address=address, tier_id=self.tier.currentData(),
             discount=currency_service.to_base(self.discount.value(), cur), payment_method=method,
             paid=None if full else currency_service.to_base(self.paid.value(), cur),
             currency_code=cur.code, notes=self._notes(method))
@@ -465,6 +510,8 @@ class POSPage(Page):
             with ctx.session() as (s, _):
                 c = s.get(Customer, cid)
                 info = f"الهاتف: {c.phone or '—'}"
+                if c.address:
+                    info += f" • العنوان: {c.address}"
                 if c.balance:
                     info += f" • الرصيد المستحق: {currency_service.format_amount(s, c.balance)}"
                 tier = c.tier_id
@@ -475,6 +522,29 @@ class POSPage(Page):
             self.customer_info.setText("")
             self.tier.setCurrentIndex(0)
         self._recalc()
+
+    def _cust_mode_changed(self) -> None:
+        existing = self.m_existing.isChecked()
+        self.existing_box.setVisible(existing)
+        self.details_box.setVisible(not existing)
+        if existing:
+            self._customer_changed()
+        else:
+            self.tier.setCurrentIndex(0)
+            self.c_name.setFocus()
+            self._recalc()
+
+    def _save_typed_customer(self, s) -> int | None:
+        """يحفظ تفاصيل الزبون المكتوبة (أو يجد زبوناً مسجلاً بنفس الهاتف) ويعيد رقمه."""
+        name, phone = self.c_name.text().strip(), self.c_phone.text().strip()
+        if phone:
+            found = s.scalar(select(Customer).where(Customer.phone == phone))
+            if found:
+                if not found.address and self.c_address.text().strip():
+                    found.address = self.c_address.text().strip()
+                return found.id
+        return sales_service.save_customer(s, name, phone, self.c_address.text().strip(),
+                                           tier_id=self.tier.currentData()).id
 
     def _new_customer(self) -> None:
         dlg = CustomerQuickDialog(self)
@@ -492,14 +562,28 @@ class POSPage(Page):
         if self.p_cash.isChecked() and self.paid.value() and self.paid.value() < self.total_display - 0.001:
             error(self, "المبلغ المستلم أقل من الإجمالي. اختر «دفع جزئي» أو صحّح المبلغ.")
             return
+        typed = self.m_details.isChecked()
+        has_details = typed and any(w.text().strip() for w in (self.c_name, self.c_phone, self.c_address))
+        if has_details and not self.c_name.text().strip():
+            error(self, "أدخل اسم الزبون أو امسح تفاصيله للبيع كزبون نقدي")
+            self.c_name.setFocus()
+            return
+        on_credit = self.p_credit.isChecked() or self.p_partial.isChecked()
+        if typed and on_credit and not (has_details and self.c_save.isChecked()):
+            error(self, "البيع الآجل أو الجزئي يحتاج زبوناً مسجلاً: أدخل الاسم وفعّل «حفظ الزبون في قائمة الزبائن».")
+            return
         try:
             with ctx.session() as (s, u):
-                inv = sales_service.create_sale(s, u, self._request(s))
+                cid = None
+                if has_details and self.c_save.isChecked():
+                    cid = self._save_typed_customer(s)
+                inv = sales_service.create_sale(s, u, self._request(s, cid))
                 inv_id, number = inv.id, inv.number
         except ServiceError as exc:
             error(self, str(exc))
             return
         self._clear(ask=False)
+        self._load_refs()
         Toast.show_message(self, f"تم البيع — فاتورة {number}", "success")
         from ftapp.ui.dialogs.invoice_preview import InvoicePreviewDialog
         InvoicePreviewDialog(self, inv_id).exec()
@@ -529,6 +613,9 @@ class POSPage(Page):
         self.sham_ref.clear()
         self.p_cash.setChecked(True)
         self.customer.setCurrentIndex(0)
+        for w in (self.c_name, self.c_phone, self.c_address):
+            w.clear()
+        self.m_existing.setChecked(True)
         self._recalc()
 
     def open_item(self, payload) -> None:

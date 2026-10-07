@@ -2,20 +2,24 @@
 <head>
 <meta charset="utf-8">
 <style>
-  body { font-family: 'Cairo'; font-size: {{ fs }}pt; color: #0D0D0D; }
-  .title { font-size: {{ fs + (3 if thermal else 7) }}pt; font-weight: bold; color: #1565C0; }
+  body { font-family: 'Cairo'; font-size: {{ fs }}pt; color: #1A1A1A; }
+  .title { font-size: {{ fs + (3 if thermal else 4) }}pt; font-weight: bold; color: {{ style.accent }}; }
+  .doc-title { font-size: {{ fs + 8 }}pt; font-weight: bold; color: {{ style.accent }}; }
   .sub { color: #546E7A; font-size: {{ fs - 1 }}pt; }
-  .badge { font-size: {{ fs + 3 }}pt; font-weight: bold; color: #FFFFFF; background-color: #1565C0; }
-  th { background-color: #1565C0; color: #FFFFFF; font-weight: bold; padding: 4px; }
-  td { padding: 3px; }
-  .row-alt { background-color: #F3F8FD; }
-  .tot { font-weight: bold; }
-  .grand { font-size: {{ fs + 3 }}pt; font-weight: bold; color: #1565C0; }
+  .label { color: #607D8B; font-size: {{ fs - 1 }}pt; }
+  .box-title { font-weight: bold; color: {{ style.accent }}; }
+  .code { font-size: {{ fs - 1 }}pt; white-space: nowrap; }
+  th { background-color: {{ style.accent }}; color: #FFFFFF; font-weight: bold; }
+  .row-alt { background-color: {{ style.accent_soft }}; }
+  .grand { font-size: {{ fs + 2 }}pt; font-weight: bold; color: #FFFFFF; background-color: {{ style.accent }}; }
+  .grand-t { font-size: {{ fs + 2 }}pt; font-weight: bold; color: {{ style.accent }}; }
   .muted { color: #78909C; font-size: {{ fs - 2 }}pt; }
   .danger { color: #E53935; font-weight: bold; }
+  .gap { font-size: 3pt; }
 </style>
 </head>
 <body dir="rtl">
+{# ملاحظة: محرك Qt يرتب أعمدة الجداول من اليسار لليمين دائماً، لذا تُكتب الخلايا بترتيب معكوس (العمود الأيمن آخراً). #}
 {% if thermal %}
 <table width="100%" cellspacing="0" cellpadding="0">
   {% if show_logo %}<tr><td align="center"><img src="logo" width="{{ logo_w }}" height="{{ logo_h }}"></td></tr>{% endif %}
@@ -32,107 +36,155 @@
   <tr><td>الرقم: <b>{{ inv.number }}</b></td></tr>
   <tr><td>التاريخ: {{ inv.created_at.strftime('%Y-%m-%d %H:%M') }}</td></tr>
   {% if inv.customer_name %}<tr><td>الزبون: {{ inv.customer_name }} {{ inv.customer_phone }}</td></tr>{% endif %}
-  <tr><td>البائع: {{ seller }}</td></tr>
+  {% if customer_address %}<tr><td>العنوان: {{ customer_address }}</td></tr>{% endif %}
+  {% if style.show_seller %}<tr><td>البائع: {{ seller }}</td></tr>{% endif %}
 </table>
 <hr>
 <table width="100%" cellspacing="0" cellpadding="2">
-  <tr><th align="right">الصنف</th><th>الكمية</th><th>المبلغ</th></tr>
+  <tr><th align="left">المبلغ</th><th>الكمية</th><th align="right">الصنف</th></tr>
   {% for it in items %}
-  <tr><td>{{ it.name }}<br><span class="muted">{{ it.qty }} × {{ it.price }}</span></td>
-      <td align="center">{{ it.qty }}</td><td align="left">{{ it.total }}</td></tr>
+  <tr><td align="left" valign="top">{{ it.total }}</td><td align="center" valign="top">{{ it.qty }}</td>
+      <td align="right">{{ it.name }}<br><span class="muted">{{ it.qty }} × {{ it.price }}</span></td></tr>
   {% endfor %}
 </table>
 <hr>
 {% else %}
+{# ===== الترويسة: عنوان المستند ورقمه (يسار) + المنشأة واللوغو (يمين) ===== #}
 <table width="100%" cellspacing="0" cellpadding="2">
-  {% if show_logo %}<tr><td align="center"><img src="logo" width="{{ logo_w }}" height="{{ logo_h }}"></td></tr>{% endif %}
-  <tr><td align="center"><span class="title">{{ company.name }}</span>
-      {% if company.name_en %}<br><span class="sub">{{ company.name_en }}</span>{% endif %}</td></tr>
-  <tr><td align="center">
-      {% if company.address %}<span class="sub">{{ company.address }}</span><br>{% endif %}
-      {% if company.phone %}<span class="sub">هاتف: {{ company.phone }}</span>{% endif %}
-      {% if company.email %}<span class="sub"> — {{ company.email }}</span>{% endif %}
-      {% if company.tax_number %}<br><span class="sub">الرقم الضريبي: {{ company.tax_number }}</span>{% endif %}
-      {% for ln in details %}<br><span class="sub">{{ ln }}</span>{% endfor %}
-  </td></tr>
-</table>
-<table width="100%" cellspacing="0" cellpadding="5">
-  <tr><td class="badge" align="center">{{ doc_title }}</td></tr>
-</table>
-<table width="100%" cellspacing="0" cellpadding="3">
   <tr>
-    <td width="50%">رقم المستند: <b>{{ inv.number }}</b><br>
-        التاريخ: {{ inv.created_at.strftime('%Y-%m-%d %H:%M') }}<br>
-        البائع: {{ seller }}
-        {% if original %}<br>عن الفاتورة: {{ original }}{% endif %}
-        {% if inv.valid_until %}<br>صالح حتى: {{ inv.valid_until.strftime('%Y-%m-%d') }}{% endif %}
+    <td width="36%" valign="middle" align="left">
+      <span class="doc-title">{{ doc_title }}</span>
+      {% if status_note %}<br><span class="danger">{{ status_note }}</span>{% endif %}
+      <table cellspacing="0" cellpadding="1" align="left">
+        <tr><td><b>{{ inv.number }}</b></td><td width="8"></td><td class="label" align="right">رقم الفاتورة</td></tr>
+        <tr><td>{{ inv.created_at.strftime('%Y-%m-%d') }}</td><td></td><td class="label" align="right">التاريخ</td></tr>
+        <tr><td>{{ inv.created_at.strftime('%H:%M') }}</td><td></td><td class="label" align="right">الوقت</td></tr>
+        {% if inv.valid_until %}<tr><td>{{ inv.valid_until.strftime('%Y-%m-%d') }}</td><td></td><td class="label" align="right">صالح حتى</td></tr>{% endif %}
+        {% if original %}<tr><td>{{ original }}</td><td></td><td class="label" align="right">عن الفاتورة</td></tr>{% endif %}
+      </table>
     </td>
-    <td width="50%">الزبون: <b>{{ inv.customer_name or 'زبون نقدي' }}</b><br>
-        {% if inv.customer_phone %}الهاتف: {{ inv.customer_phone }}<br>{% endif %}
-        طريقة الدفع: {{ payment_label }}<br>
-        {% if inv.payment_method == 'shamcash' and shamcash %}حساب شام كاش: {{ shamcash }}<br>{% endif %}
-        العملة: {{ currency.name }}
+    <td width="64%" valign="middle" align="right">
+      <table cellspacing="0" cellpadding="0" align="right"><tr>
+        <td valign="middle" align="right">
+          <span class="title">{{ company.name }}</span>
+          {% if company.name_en %}<br><span class="sub">{{ company.name_en }}</span>{% endif %}
+          {% if company.address %}<br><span class="sub">{{ company.address }}</span>{% endif %}
+          {% if company.phone or company.email %}<br><span class="sub">{% if company.phone %}هاتف: {{ company.phone }}{% endif %}{% if company.phone and company.email %} • {% endif %}{{ company.email }}</span>{% endif %}
+          {% if company.tax_number %}<br><span class="sub">الرقم الضريبي: {{ company.tax_number }}</span>{% endif %}
+          {% for ln in details %}<br><span class="sub">{{ ln }}</span>{% endfor %}
+        </td>
+        {% if show_logo %}<td width="12"></td><td valign="middle"><img src="logo" width="{{ logo_w }}" height="{{ logo_h }}"></td>{% endif %}
+      </tr></table>
     </td>
   </tr>
 </table>
-<table width="100%" cellspacing="0" cellpadding="4" border="0">
-  <tr><th width="4%">#</th><th align="right" width="20%">الكود</th><th align="right">الصنف</th>
-      <th width="10%">الكمية</th><th width="14%">السعر</th><th width="10%">الخصم</th><th width="16%">المبلغ</th></tr>
+<table width="100%" cellspacing="0" cellpadding="0"><tr><td bgcolor="{{ style.accent }}" class="gap">&nbsp;</td></tr></table>
+<div class="gap">&nbsp;</div>
+{# ===== تفاصيل الدفع (يسار) + فاتورة إلى (يمين) ===== #}
+<table width="100%" cellspacing="0" cellpadding="0">
+  <tr>
+    <td width="49%" valign="top">
+      <table width="100%" cellspacing="0" cellpadding="4" bgcolor="{{ style.accent_soft }}">
+        <tr><td align="right"><span class="box-title">تفاصيل الدفع</span>
+          <br><span class="label">طريقة الدفع:</span> {{ payment_label }}
+          <br><span class="label">العملة:</span> {{ currency.name }}
+          {% if inv.payment_method == 'shamcash' and shamcash %}<br><span class="label">حساب شام كاش:</span> {{ shamcash }}{% endif %}
+          {% if style.show_seller and seller %}<br><span class="label">البائع:</span> {{ seller }}{% endif %}
+        </td></tr>
+      </table>
+    </td>
+    <td width="2%"></td>
+    <td width="49%" valign="top">
+      <table width="100%" cellspacing="0" cellpadding="4" bgcolor="{{ style.accent_soft }}">
+        <tr><td align="right"><span class="box-title">فاتورة إلى</span>
+          <br><b>{{ inv.customer_name or 'زبون نقدي' }}</b>
+          {% if inv.customer_phone %}<br><span class="label">الهاتف:</span> {{ inv.customer_phone }}{% endif %}
+          {% if customer_address %}<br><span class="label">العنوان:</span> {{ customer_address }}{% endif %}
+        </td></tr>
+      </table>
+    </td>
+  </tr>
+</table>
+<div class="gap">&nbsp;</div>
+{# ===== جدول الأصناف (الترتيب من اليسار: المبلغ ... #) ===== #}
+<table width="100%" cellspacing="0" cellpadding="3" border="1" style="border-collapse: collapse; border-color: {{ style.accent_line }}; border-style: solid;">
+  <tr><th width="15%">المبلغ</th><th width="10%">الخصم</th><th width="14%">سعر الوحدة</th><th width="11%">الكمية</th>
+      <th align="right">البيان</th>{% if style.show_code %}<th width="17%">الكود</th>{% endif %}<th width="4%">#</th></tr>
   {% for it in items %}
   <tr class="{{ 'row-alt' if loop.index is even else '' }}">
-    <td align="center">{{ loop.index }}</td><td nowrap>{{ it.code }}</td><td>{{ it.name }}</td>
-    <td align="center" nowrap>{{ it.qty }} {{ it.unit }}</td><td align="center" nowrap>{{ it.price }}</td>
-    <td align="center" nowrap>{{ it.discount }}</td><td align="center" nowrap>{{ it.total }}</td>
+    <td align="center"><b>{{ it.total }}</b></td><td align="center">{{ it.discount }}</td>
+    <td align="center">{{ it.price }}</td><td align="center">{{ it.qty }}{% if style.show_unit %} {{ it.unit }}{% endif %}</td>
+    <td align="right">{{ it.name }}</td>{% if style.show_code %}<td align="center"><span class="code">{{ it.code | replace('-', '‑') }}</span></td>{% endif %}
+    <td align="center">{{ loop.index }}</td>
   </tr>
   {% endfor %}
 </table>
+<table width="100%" cellspacing="0" cellpadding="1"><tr><td align="right" class="muted">عدد الأصناف: {{ item_count }} — مجموع الكميات: {{ qty_total }}</td></tr></table>
 {% endif %}
-{% macro totals_table() %}
-<table width="100%" cellspacing="0" cellpadding="3">
-  <tr><td>المجموع</td><td align="left">{{ totals.subtotal }}</td></tr>
-  {% if inv.discount %}<tr><td>الخصم</td><td align="left">- {{ totals.discount }}</td></tr>{% endif %}
-  {% if inv.tax_amount %}<tr><td>الضريبة ({{ inv.tax_rate }}%)</td><td align="left">{{ totals.tax }}</td></tr>{% endif %}
-  <tr><td class="grand">الإجمالي</td><td align="left" class="grand">{{ totals.total }}</td></tr>
+{% macro totals_table(boxed=False) %}
+<table width="100%" cellspacing="0" cellpadding="{{ 3 if boxed else 1 }}"{% if boxed %} border="1" style="border-collapse: collapse; border-color: {{ style.accent_line }}; border-style: solid;"{% endif %}>
+  <tr><td align="left">{{ totals.subtotal }}</td><td align="right">المجموع</td></tr>
+  {% if inv.discount %}<tr><td align="left">{{ totals.discount }}</td><td align="right">الخصم</td></tr>{% endif %}
+  {% if inv.tax_amount %}<tr><td align="left">{{ totals.tax }}</td><td align="right">الضريبة ({{ inv.tax_rate }}%)</td></tr>{% endif %}
+  {% set g = 'grand' if boxed else 'grand-t' %}
+  <tr><td align="left" class="{{ g }}">{{ totals.total }}</td><td align="right" class="{{ g }}">الإجمالي</td></tr>
   {% if inv.kind == 'sale' %}
-  <tr><td>المدفوع</td><td align="left">{{ totals.paid }}</td></tr>
-  {% if inv.remaining > 0 %}<tr><td class="danger">المتبقي (دين)</td><td align="left" class="danger">{{ totals.remaining }}</td></tr>{% endif %}
+  <tr><td align="left">{{ totals.paid }}</td><td align="right">المدفوع</td></tr>
+  {% if inv.remaining > 0 %}<tr><td align="left" class="danger">{{ totals.remaining }}</td><td align="right" class="danger">المتبقي (دين)</td></tr>{% endif %}
   {% endif %}
-  {% if alt_total %}<tr><td class="muted">ما يعادل</td><td align="left" class="muted">{{ alt_total }}</td></tr>{% endif %}
+  {% if alt_total %}<tr><td align="left" class="muted">{{ alt_total }}</td><td align="right" class="muted">ما يعادل</td></tr>{% endif %}
 </table>
 {% endmacro %}
 {% if thermal %}
 {{ totals_table() }}
 {% if inv.notes %}<p class="sub">ملاحظات: {{ inv.notes }}</p>{% endif %}
 {% if shamcash %}<p class="sub" align="center">الدفع عبر شام كاش: <b>{{ shamcash }}</b></p>{% endif %}
+{% for ln in payment_info %}<p class="sub" align="center">{{ ln }}</p>{% endfor %}
 <table width="100%" cellspacing="0" cellpadding="4">
-  <tr><td align="center"><img src="qr" width="{{ qr_size }}" height="{{ qr_size }}"></td></tr>
+  {% if style.show_qr %}<tr><td align="center"><img src="qr" width="{{ qr_size }}" height="{{ qr_size }}"></td></tr>{% endif %}
   {% if facebook %}<tr><td align="center"><img src="fb" width="{{ qr_size }}" height="{{ qr_size }}"><br>
       <span class="sub">تابعونا على فيسبوك</span></td></tr>{% endif %}
   <tr><td align="center" class="sub">{{ company.invoice_footer }}</td></tr>
   {% if status_note %}<tr><td align="center" class="danger">{{ status_note }}</td></tr>{% endif %}
 </table>
 {% else %}
-<table width="100%" cellspacing="0" cellpadding="6">
+{# ===== الإجماليات (يسار) + الملاحظات والشروط (يمين) ===== #}
+<table width="100%" cellspacing="0" cellpadding="0">
   <tr>
-    <td width="55%" valign="top">
-      {% if inv.notes %}<p class="sub">ملاحظات: {{ inv.notes }}</p>{% endif %}
-      {% if shamcash %}<p class="sub">الدفع عبر شام كاش: <b>{{ shamcash }}</b></p>{% endif %}
-      <table cellspacing="0" cellpadding="2"><tr>
-        <td align="center" valign="top"><img src="qr" width="{{ qr_size }}" height="{{ qr_size }}"><br>
-            <span class="muted">رمز الفاتورة</span></td>
-        {% if facebook %}<td width="12"></td>
-        <td align="center" valign="top"><img src="fb" width="{{ qr_size }}" height="{{ qr_size }}"><br>
-            <span class="muted">تابعونا على فيسبوك</span></td>{% endif %}
-      </tr></table>
-      <span class="sub">{{ company.invoice_footer }}</span>
-      {% if status_note %}<br><span class="danger">{{ status_note }}</span>{% endif %}
+    <td width="40%" valign="top">{{ totals_table(True) }}</td>
+    <td width="4%"></td>
+    <td width="56%" valign="top" align="right">
+      {% if inv.notes %}<span class="box-title">ملاحظات</span>
+        {% for ln in inv.notes.splitlines() if ln.strip() %}<br><span class="sub">{{ ln }}</span>{% endfor %}<br>{% endif %}
+      {% if terms %}<span class="box-title">الشروط والأحكام</span>
+        {% for ln in terms %}<br><span class="sub">• {{ ln }}</span>{% endfor %}<br>{% endif %}
+      {% if payment_info or shamcash %}<span class="box-title">معلومات الدفع</span>
+        {% if shamcash %}<br><span class="sub">شام كاش: <b>{{ shamcash }}</b></span>{% endif %}
+        {% for ln in payment_info %}<br><span class="sub">{{ ln }}</span>{% endfor %}{% endif %}
     </td>
-    <td width="45%" valign="top">{{ totals_table() }}</td>
   </tr>
 </table>
+<div class="gap">&nbsp;</div>
+{# ===== التذييل: التواقيع (يسار) + رموز QR (يمين) ===== #}
 <table width="100%" cellspacing="0" cellpadding="2">
-  <tr><td width="50%" align="center" class="sub">توقيع البائع: ..................</td>
-      <td width="50%" align="center" class="sub">توقيع الزبون: ..................</td></tr>
+  <tr>
+    <td valign="bottom">
+      {% if style.show_signatures %}
+      <table width="100%" cellspacing="0" cellpadding="4">
+        <tr><td align="center" class="sub">توقيع المستلم<br>....................</td>
+            {% if style.show_stamp %}<td align="center" class="sub">الختم<br>....................</td>{% endif %}
+            <td align="center" class="sub">توقيع البائع<br>....................</td></tr>
+      </table>
+      {% endif %}
+    </td>
+    {% if facebook %}<td align="center" valign="top" width="15%"><img src="fb" width="{{ qr_size }}" height="{{ qr_size }}"><br>
+        <span class="muted">تابعونا على فيسبوك</span></td>{% endif %}
+    {% if style.show_qr %}<td align="center" valign="top" width="15%"><img src="qr" width="{{ qr_size }}" height="{{ qr_size }}"><br>
+        <span class="muted">رمز الفاتورة</span></td>{% endif %}
+  </tr>
+</table>
+<table width="100%" cellspacing="0" cellpadding="3">
+  <tr><td bgcolor="{{ style.accent_soft }}" align="center" class="sub">{{ company.invoice_footer }}</td></tr>
 </table>
 {% endif %}
 </body>

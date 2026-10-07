@@ -95,6 +95,27 @@ def test_invoice_custom_details_facebook_and_shamcash(db, admin, product_factory
         assert not doc.resource(QTextDocument.ResourceType.ImageResource, QUrl("fb")).isNull()
 
 
+def test_commercial_invoice_customer_details_and_design_settings(db, admin, product_factory, tmp_path):
+    from ftapp.services import settings_service
+
+    settings_service.update(db, "invoice", sale_title="فاتورة تجارية", accent_color="#2E7D32",
+                            terms="الكفالة سنة واحدة\nلا يُرد المبيع", payment_info="حساب بنكي 4455",
+                            show_code=False, show_signatures=True)
+    p = product_factory("راوتر", qty=5, code="RT-77")
+    inv = sales_service.create_sale(db, admin, sales_service.SaleRequest(
+        [sales_service.CartLine(p.id, 2)], customer_name="شركة النور", customer_phone="0933111222",
+        customer_address="حلب - الجميلية"))
+    db.commit()
+    assert inv.customer_address == "حلب - الجميلية" and inv.customer_id is None
+    text = pdf_service.build_invoice_document(db, inv, "A4").toPlainText()
+    for expected in ("فاتورة تجارية", "شركة النور", "0933111222", "حلب - الجميلية", "الكفالة سنة واحدة",
+                     "حساب بنكي 4455", "فاتورة إلى", "توقيع المستلم"):
+        assert expected in text
+    assert p.code not in text  # عمود الكود مخفي من الإعدادات
+    assert "حلب - الجميلية" in pdf_service.build_invoice_document(db, inv, "80mm").toPlainText()
+    assert pdf_service.invoice_pdf(db, inv, tmp_path / "c.pdf", "A4").read_bytes()[:4] == b"%PDF"
+
+
 class _FakeModels:
     def __init__(self, payload):
         self.payload = payload

@@ -69,6 +69,21 @@ DEFAULTS: dict[str, Any] = {
     "backup": {"auto": True, "keep": 14, "encrypt": False, "cloud_folder": "", "last": ""},
     "ui": {"language": "ar", "theme": "light", "idle_lock_minutes": 15},
     "printing": {"paper": "A4", "show_logo": True, "copies": 1, "printer": ""},
+    # تصميم الفاتورة التجارية (يُعدَّل من الإعدادات)
+    "invoice": {
+        "sale_title": "فاتورة مبيعات",
+        "quotation_title": "عرض سعر",
+        "return_title": "إشعار مرتجع",
+        "accent_color": "#1565C0",
+        "terms": "البضاعة المباعة لا تُرد ولا تُستبدل إلا بموجب هذه الفاتورة وخلال 7 أيام.",
+        "payment_info": "",   # بيانات الدفع/الحساب البنكي تُطبع أسفل الفاتورة
+        "show_code": True,
+        "show_unit": True,
+        "show_seller": True,
+        "show_qr": True,
+        "show_signatures": True,
+        "show_stamp": True,
+    },
     "updates": {"check_url": "", "auto_check": True},
     "code_format": {"separator": "-", "serial_digits": 4},
     "recovery_key_hash": "",

@@ -6,7 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import QUrl, Qt
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
-                               QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+                               QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                                QPlainTextEdit, QScrollArea, QVBoxLayout, QWidget)
 
 from ftapp import VERSION
@@ -57,6 +57,7 @@ class SettingsPage(Page):
         self.col.setSpacing(14)
         self.col.setContentsMargins(0, 0, 8, 0)
         self._company()
+        self._invoice_design()
         self._general()
         self._printing_ui()
         self._server()
@@ -100,6 +101,65 @@ class SettingsPage(Page):
         f.addRow("الشعار", _hrow(self.logo, button("تغيير", "image", on_click=self._logo),
                                  button("الشعار الأصلي", on_click=self._logo_reset), "stretch"))
         self.col.addWidget(card)
+
+    def _invoice_design(self) -> None:
+        card = Card("تصميم الفاتورة", icon_name="receipt")
+        f = _form(card)
+        self.i_sale = QLineEdit()
+        self.i_quote = QLineEdit()
+        self.i_color = "#1565C0"
+        self.i_color_btn = button("اختيار اللون", on_click=self._pick_color)
+        self.i_color_swatch = QLabel()
+        self.i_color_swatch.setFixedSize(28, 28)
+        self.i_terms = QPlainTextEdit()
+        self.i_terms.setPlaceholderText("كل سطر بند مستقل، مثال:\nالبضاعة المباعة لا تُرد ولا تُستبدل إلا بموجب الفاتورة.\n"
+                                        "الكفالة حسب شروط الوكيل.")
+        self.i_terms.setFixedHeight(80)
+        self.i_payment = QPlainTextEdit()
+        self.i_payment.setPlaceholderText("مثال: حساب بنكي رقم ... / حوالة عبر ...")
+        self.i_payment.setFixedHeight(60)
+        self.i_checks = {k: QCheckBox(v) for k, v in (
+            ("show_code", "عمود كود الصنف"), ("show_unit", "إظهار الوحدة مع الكمية"),
+            ("show_seller", "اسم البائع"), ("show_qr", "رمز QR للفاتورة"),
+            ("show_signatures", "خانات التوقيع"), ("show_stamp", "خانة الختم"))}
+        checks = QWidget()
+        grid = QGridLayout(checks)
+        grid.setContentsMargins(0, 0, 0, 0)
+        for i, cb in enumerate(self.i_checks.values()):
+            grid.addWidget(cb, i // 3, i % 3)
+        f.addRow("عنوان فاتورة البيع", self.i_sale)
+        f.addRow("عنوان عرض السعر", self.i_quote)
+        f.addRow("لون الفاتورة", _hrow(self.i_color_swatch, self.i_color_btn, "stretch"))
+        f.addRow("الشروط والأحكام", self.i_terms)
+        f.addRow("معلومات الدفع", self.i_payment)
+        f.addRow("يظهر على الفاتورة", checks)
+        f.addRow("", _hrow(button("معاينة آخر فاتورة بالتصميم الحالي", "receipt", "soft", on_click=self._preview_invoice),
+                           "stretch"))
+        card.add(muted("الشعار وبيانات المنشأة تُعدّل من البطاقة السابقة. احفظ الإعدادات ثم اضغط «معاينة» لرؤية النتيجة."))
+        self.col.addWidget(card)
+
+    def _set_color(self, color: str) -> None:
+        self.i_color = color
+        self.i_color_swatch.setStyleSheet(f"background: {color}; border-radius: 6px; border: 1px solid #90A4AE;")
+
+    def _pick_color(self) -> None:
+        from PySide6.QtGui import QColor
+        from PySide6.QtWidgets import QColorDialog
+        c = QColorDialog.getColor(QColor(self.i_color), self, "لون الفاتورة")
+        if c.isValid():
+            self._set_color(c.name())
+
+    def _preview_invoice(self) -> None:
+        from sqlalchemy import select
+        from ftapp.models import Invoice
+        from ftapp.ui.dialogs.invoice_preview import InvoicePreviewDialog
+        self._save()
+        with ctx.session() as (s, _):
+            inv_id = s.scalar(select(Invoice.id).where(Invoice.kind == "sale").order_by(Invoice.id.desc()).limit(1))
+        if inv_id is None:
+            info(self, "لا توجد فواتير بعد. أتمم عملية بيع من نقطة البيع ثم عد للمعاينة.")
+            return
+        InvoicePreviewDialog(self, inv_id).exec()
 
     def _general(self) -> None:
         card = Card("المخزون والمبيعات", icon_name="box")
@@ -237,6 +297,14 @@ class SettingsPage(Page):
             self.c_details.setPlainText(c.get("invoice_details", ""))
             self.c_facebook.setText(c.get("facebook_url", ""))
             self.c_shamcash.setText(c.get("shamcash_account", ""))
+            iv = g("invoice")
+            self.i_sale.setText(iv.get("sale_title", ""))
+            self.i_quote.setText(iv.get("quotation_title", ""))
+            self._set_color(iv.get("accent_color") or "#1565C0")
+            self.i_terms.setPlainText(iv.get("terms", ""))
+            self.i_payment.setPlainText(iv.get("payment_info", ""))
+            for k, cb in self.i_checks.items():
+                cb.setChecked(bool(iv.get(k, True)))
             self.g_min.setValue(float(g("default_min_stock") or 0))
             self.g_slow.setValue(int(g("slow_moving_days")))
             self.g_expiry.setValue(int(g("expiry_warning_days")))
@@ -291,6 +359,10 @@ class SettingsPage(Page):
                 tax_number=self.c_tax.text(), invoice_footer=self.c_footer.text(),
                 invoice_details=self.c_details.toPlainText().strip(), facebook_url=self.c_facebook.text().strip(),
                 shamcash_account=self.c_shamcash.text().strip())
+            upd("invoice", sale_title=self.i_sale.text().strip() or "فاتورة مبيعات",
+                quotation_title=self.i_quote.text().strip() or "عرض سعر", accent_color=self.i_color,
+                terms=self.i_terms.toPlainText().strip(), payment_info=self.i_payment.toPlainText().strip(),
+                **{k: cb.isChecked() for k, cb in self.i_checks.items()})
             settings_service.set(s, "default_min_stock", self.g_min.value())
             settings_service.set(s, "slow_moving_days", self.g_slow.value())
             settings_service.set(s, "expiry_warning_days", self.g_expiry.value())

@@ -19,7 +19,7 @@ def _request(body: SaleIn) -> sales_service.SaleRequest:
     return sales_service.SaleRequest(
         lines=[sales_service.CartLine(l.product_id, l.quantity, l.unit_price, l.discount) for l in body.lines],
         customer_id=body.customer_id, customer_name=body.customer_name, customer_phone=body.customer_phone,
-        warehouse_id=body.warehouse_id, tier_id=body.tier_id, discount=body.discount, paid=body.paid,
+        customer_address=body.customer_address, warehouse_id=body.warehouse_id, tier_id=body.tier_id, discount=body.discount, paid=body.paid,
         payment_method=body.payment_method, currency_code=body.currency_code, notes=body.notes, source="mobile")
 
 

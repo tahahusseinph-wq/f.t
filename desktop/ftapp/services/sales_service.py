@@ -35,6 +35,7 @@ class SaleRequest:
     customer_id: int | None = None
     customer_name: str = ""
     customer_phone: str = ""
+    customer_address: str = ""
     warehouse_id: int | None = None
     tier_id: int | None = None
     discount: float = 0.0
@@ -102,8 +103,10 @@ def _fill_header(session: Session, inv: Invoice, req: SaleRequest, calc: dict[st
         cust = session.get(Customer, req.customer_id)
         inv.customer_name = req.customer_name or (cust.name if cust else "")
         inv.customer_phone = req.customer_phone or (cust.phone if cust else "")
+        inv.customer_address = req.customer_address or (cust.address if cust else "")
     else:
         inv.customer_name, inv.customer_phone = req.customer_name.strip(), req.customer_phone.strip()
+        inv.customer_address = req.customer_address.strip()
     inv.user_id = actor.id if actor else None
     inv.warehouse_id = req.warehouse_id or inventory_service.default_warehouse(session).id
     inv.tier_id = calc["tier_id"]
@@ -199,7 +202,7 @@ def convert_quotation(session: Session, actor: User | None, quotation_id: int, p
     req = SaleRequest(
         lines=[CartLine(i.product_id, i.quantity, i.unit_price, i.discount) for i in q.items if i.product_id],
         customer_id=q.customer_id, customer_name=q.customer_name, customer_phone=q.customer_phone,
-        warehouse_id=q.warehouse_id, tier_id=q.tier_id, discount=q.discount, tax_rate=q.tax_rate,
+        customer_address=q.customer_address, warehouse_id=q.warehouse_id, tier_id=q.tier_id, discount=q.discount, tax_rate=q.tax_rate,
         payment_method=payment_method, paid=paid, currency_code=q.currency_code,
         notes=f"محوّل من عرض السعر {q.number}" + (f"\n{q.notes}" if q.notes else ""),
     )
@@ -219,7 +222,7 @@ def create_return(session: Session, actor: User | None, original_id: int, items:
     by_id = {i.id: i for i in orig.items}
     ret = Invoice(number=numbering.next_document_number(session, "return"), kind="return", status="posted",
                   original_invoice_id=orig.id, customer_id=orig.customer_id, customer_name=orig.customer_name,
-                  customer_phone=orig.customer_phone, user_id=actor.id if actor else None,
+                  customer_phone=orig.customer_phone, customer_address=orig.customer_address, user_id=actor.id if actor else None,
                   warehouse_id=orig.warehouse_id, currency_code=orig.currency_code, exchange_rate=orig.exchange_rate,
                   notes=notes, payment_method="cash" if refund_to == "cash" else "credit", tier_id=orig.tier_id)
     shift = finance_service.current_shift(session, actor) if actor else None

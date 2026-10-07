@@ -75,3 +75,29 @@ def test_invoice_preview_edit_and_save(app, db, admin, product_factory, tmp_path
     assert "تفاصيل إضافية" in dlg.view.toPlainText()
     dlg._keep.setModified(False)
     dlg.done(0)
+
+
+def test_pos_checkout_with_typed_customer_creates_invoice(app, db, admin, product_factory, monkeypatch):
+    from ftapp.models import Customer, Invoice
+    from ftapp.ui.context import ctx
+    from ftapp.ui.dialogs import invoice_preview
+    from ftapp.ui.pages import pos_page
+
+    shown = []
+    monkeypatch.setattr(invoice_preview.InvoicePreviewDialog, "exec", lambda self: shown.append(self.invoice_id))
+    monkeypatch.setattr(pos_page, "confirm", lambda *a, **k: True)
+    p = product_factory("طابعة", qty=4)
+    ctx.set_user(admin)
+    page = pos_page.POSPage()
+    page.add_product(p.id, 2)
+    page.m_details.setChecked(True)
+    page.c_name.setText("مؤسسة الأمل")
+    page.c_phone.setText("0944555666")
+    page.c_address.setText("حمص - الوعر")
+    page._checkout()
+    db.expire_all()
+    inv = db.get(Invoice, shown[0])
+    cust = db.query(Customer).filter_by(phone="0944555666").one()
+    assert inv.customer_id == cust.id and cust.address == "حمص - الوعر"
+    assert inv.customer_name == "مؤسسة الأمل" and inv.customer_address == "حمص - الوعر"
+    assert not page.cart and page.m_existing.isChecked() and not page.c_name.text()

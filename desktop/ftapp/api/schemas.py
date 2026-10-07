@@ -41,6 +41,7 @@ class SaleIn(BaseModel):
     customer_id: int | None = None
     customer_name: str = ""
     customer_phone: str = ""
+    customer_address: str = ""
     warehouse_id: int | None = None
     tier_id: int | None = None
     discount: float = 0.0

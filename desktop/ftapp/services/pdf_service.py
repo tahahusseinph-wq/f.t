@@ -100,6 +100,31 @@ def _logo_box(height: int) -> tuple[int, int]:
     return int(height * ratio), height
 
 
+def _tint(color: str, amount: float) -> str:
+    """لون فاتح مشتق من لون الفاتورة (amount: 0 = نفس اللون، 1 = أبيض)."""
+    from PySide6.QtGui import QColor
+
+    c = QColor(color)
+    if not c.isValid():
+        c = QColor("#1565C0")
+    mix = lambda v: int(v + (255 - v) * amount)  # noqa: E731
+    return QColor(mix(c.red()), mix(c.green()), mix(c.blue())).name()
+
+
+def invoice_style(session: Session) -> dict[str, Any]:
+    """إعدادات تصميم الفاتورة مع الألوان المشتقة."""
+    from PySide6.QtGui import QColor
+
+    cfg = settings.get(session, "invoice")
+    accent = cfg.get("accent_color") or "#1565C0"
+    if not QColor(accent).isValid():
+        accent = "#1565C0"
+    cfg["accent"] = accent
+    cfg["accent_soft"] = _tint(accent, 0.88)
+    cfg["accent_line"] = _tint(accent, 0.6)
+    return cfg
+
+
 def invoice_context(session: Session, inv: Invoice, paper: str = "A4") -> dict[str, Any]:
     cur = _currency(session, inv)
     rate = inv.exchange_rate or 1
@@ -114,7 +139,9 @@ def invoice_context(session: Session, inv: Invoice, paper: str = "A4") -> dict[s
     items = [{"code": it.product_code, "name": it.product_name, "unit": it.unit, "qty": fmt_qty(it.quantity),
               "price": m(it.unit_price), "discount": m(it.discount) if it.discount else "—",
               "total": m(it.line_total)} for it in inv.items]
-    titles = {"sale": "فاتورة مبيع", "return": "إشعار مرتجع", "quotation": "عرض سعر"}
+    style = invoice_style(session)
+    titles = {"sale": style.get("sale_title") or "فاتورة مبيعات", "return": style.get("return_title") or "إشعار مرتجع",
+              "quotation": style.get("quotation_title") or "عرض سعر"}
     base = currency_service.base(session)
     alt_total = ""
     if cur.code != base.code:
@@ -123,13 +150,17 @@ def invoice_context(session: Session, inv: Invoice, paper: str = "A4") -> dict[s
     print_cfg = settings.get(session, "printing")
     status_note = "ملغاة" if inv.status == "cancelled" else ""
     company = settings.get(session, "company")
-    logo_h = 60 if thermal else (70 if paper == "A6" else 95)
+    logo_h = 60 if thermal else (55 if paper == "A6" else 78)
     logo_w, logo_h = _logo_box(logo_h)
     return {
-        "inv": inv, "company": company, "currency": cur, "seller": seller,
+        "inv": inv, "company": company, "currency": cur, "seller": seller, "style": style,
+        "terms": [ln.strip() for ln in (style.get("terms") or "").splitlines() if ln.strip()],
+        "payment_info": [ln.strip() for ln in (style.get("payment_info") or "").splitlines() if ln.strip()],
+        "customer_address": getattr(inv, "customer_address", "") or (inv.customer.address if inv.customer else ""),
+        "item_count": len(items), "qty_total": fmt_qty(sum(it.quantity for it in inv.items)),
         "items": items, "doc_title": titles.get(inv.kind, "فاتورة"), "thermal": thermal,
         "fs": _FONT_SIZES.get(paper, 9),
-        "logo_w": logo_w, "logo_h": logo_h, "qr_size": 75 if thermal else 90,
+        "logo_w": logo_w, "logo_h": logo_h, "qr_size": 75 if thermal else 72,
         "details": [ln.strip() for ln in (company.get("invoice_details") or "").splitlines() if ln.strip()],
         "facebook": facebook_link(company.get("facebook_url", "")),
         "shamcash": (company.get("shamcash_account") or "").strip(),
