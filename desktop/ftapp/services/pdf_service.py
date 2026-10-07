@@ -29,6 +29,7 @@ _PAGE_IDS = {"A3": QPageSize.PageSizeId.A3, "A4": QPageSize.PageSizeId.A4, "A5":
              "A6": QPageSize.PageSizeId.A6, "Letter": QPageSize.PageSizeId.Letter, "Legal": QPageSize.PageSizeId.Legal}
 _FONT_SIZES = {"A3": 11, "A4": 9, "A5": 8, "A6": 7, "Letter": 9, "Legal": 9, "80mm": 7, "58mm": 6}
 _LOGO_HEIGHTS = {"A3": 135, "A4": 110, "Letter": 110, "Legal": 110, "A5": 88, "A6": 68}  # ارتفاع اللوغو بالنقاط
+_STAMP_HEIGHTS = {"A3": 120, "A4": 92, "Letter": 92, "Legal": 92, "A5": 70, "A6": 52}  # مساحة الختم والتوقيع
 _logo_cache: dict[tuple, QImage] = {}
 
 
@@ -162,7 +163,7 @@ def invoice_context(session: Session, inv: Invoice, paper: str = "A4") -> dict[s
         "item_count": len(items), "qty_total": fmt_qty(sum(it.quantity for it in inv.items)),
         "items": items, "doc_title": titles.get(inv.kind, "فاتورة"), "thermal": thermal,
         "fs": _FONT_SIZES.get(paper, 9),
-        "logo_w": logo_w, "logo_h": logo_h, "qr_size": 75 if thermal else 64,
+        "logo_w": logo_w, "logo_h": logo_h, "stamp_h": _STAMP_HEIGHTS.get(paper, 92), "qr_size": 75 if thermal else 64,
         "details": [ln.strip() for ln in (company.get("invoice_details") or "").splitlines() if ln.strip()],
         "facebook": facebook_link(company.get("facebook_url", "")),
         "shamcash": (company.get("shamcash_account") or "").strip(),
@@ -189,6 +190,9 @@ def build_invoice_document(session: Session, inv: Invoice, paper: str = "A4") ->
     doc.addResource(QTextDocument.ResourceType.ImageResource, "logo", transparent_logo())
     qr = QImage.fromData(barcode_service.qr_png(invoice_qr_text(session, inv)))
     doc.addResource(QTextDocument.ResourceType.ImageResource, "qr", qr)
+    spacer = QImage(1, 1, QImage.Format.Format_ARGB32)
+    spacer.fill(0)  # شفافة: تحجز ارتفاع خانات الختم والتوقيع
+    doc.addResource(QTextDocument.ResourceType.ImageResource, "spacer", spacer)
     fb = facebook_link(settings.get(session, "company").get("facebook_url", ""))
     if fb:
         doc.addResource(QTextDocument.ResourceType.ImageResource, "fb", QImage.fromData(barcode_service.qr_png(fb)))

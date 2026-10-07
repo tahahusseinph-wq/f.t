@@ -165,24 +165,30 @@
     </td>
   </tr>
 </table>
-{# ===== التذييل: التواقيع (يسار) + رموز QR (يمين) ===== #}
-<table width="100%" cellspacing="0" cellpadding="2">
+{# ===== التذييل: توقيع المستلم + الختم وتوقيع البائع (مساحة كافية) بمحاذاة رموز QR ===== #}
+{% set stamp_label = 'الختم وتوقيع البائع' if style.show_stamp and style.show_signatures else ('الختم' if style.show_stamp else 'توقيع البائع') %}
+<table width="100%" cellspacing="0" cellpadding="0">
   <tr>
-    <td valign="bottom">
-      {% if style.show_signatures %}
-      <table width="100%" cellspacing="0" cellpadding="4">
-        <tr><td align="center" class="sub">توقيع المستلم<br>....................</td>
-            {% if style.show_stamp %}<td align="center" class="sub">الختم<br>....................</td>{% endif %}
-            <td align="center" class="sub">توقيع البائع<br>....................</td></tr>
+    {% if style.show_signatures %}<td width="30%" valign="top">
+      <table width="100%" cellspacing="0" cellpadding="4" border="1" style="border-collapse: collapse; border-color: {{ style.accent_line }}; border-style: dashed;">
+        <tr><td align="center" class="sub">توقيع المستلم</td></tr>
+        <tr><td align="center"><img src="spacer" width="1" height="{{ stamp_h }}"></td></tr>
       </table>
-      {% endif %}
-    </td>
-    {% if facebook %}<td align="center" valign="top" width="15%"><img src="fb" width="{{ qr_size }}" height="{{ qr_size }}"><br>
+    </td>{% endif %}
+    <td></td>
+    {% if style.show_stamp or style.show_signatures %}<td width="30%" valign="top">
+      <table width="100%" cellspacing="0" cellpadding="4" border="1" style="border-collapse: collapse; border-color: {{ style.accent_line }}; border-style: dashed;">
+        <tr><td align="center" class="sub">{{ stamp_label }}</td></tr>
+        <tr><td align="center"><img src="spacer" width="1" height="{{ stamp_h }}"></td></tr>
+      </table>
+    </td><td width="2%"></td>{% endif %}
+    {% if facebook %}<td align="center" valign="middle" width="15%"><img src="fb" width="{{ qr_size }}" height="{{ qr_size }}"><br>
         <span class="muted">تابعونا على فيسبوك</span></td>{% endif %}
-    {% if style.show_qr %}<td align="center" valign="top" width="15%"><img src="qr" width="{{ qr_size }}" height="{{ qr_size }}"><br>
+    {% if style.show_qr %}<td align="center" valign="middle" width="15%"><img src="qr" width="{{ qr_size }}" height="{{ qr_size }}"><br>
         <span class="muted">رمز الفاتورة</span></td>{% endif %}
   </tr>
 </table>
+<div class="gap">&nbsp;</div>
 <table width="100%" cellspacing="0" cellpadding="3">
   <tr><td bgcolor="{{ style.accent_soft }}" align="center" class="sub">{{ company.invoice_footer }}</td></tr>
 </table>
