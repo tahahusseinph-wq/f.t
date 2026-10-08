@@ -23,9 +23,17 @@ jobs:
       - name: Qt system libraries
         run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
       - run: pip install -r requirements-dev.txt
-      - run: python -m pytest -q tests
+      - name: Tests
         env:
           QT_QPA_PLATFORM: offscreen
+        run: |
+          set +e
+          python -X faulthandler -m pytest -q tests 2>&1 | tee pytest.txt
+          status=${PIPESTATUS[0]}
+          if [ "$status" != "0" ]; then
+            grep -E "FAILED|Error|Fatal Python|File \"" pytest.txt | head -40 | sed 's/^/::error::/'
+          fi
+          exit $status
 
   mobile:
     runs-on: ubuntu-latest
@@ -45,7 +53,14 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - run: flutter analyze
+      - name: flutter analyze
+        run: |
+          set +e
+          flutter analyze > analyze.txt 2>&1
+          status=$?
+          cat analyze.txt
+          if [ "$status" != "0" ]; then grep "•" analyze.txt | head -40 | sed 's/^ */::error::/'; fi
+          exit $status
       - run: flutter test
       # مفتاح توقيع ثابت (من أسرار المستودع) حتى يتحدّث التطبيق فوق النسخة السابقة بدل رفض التثبيت
       - name: Android signing key

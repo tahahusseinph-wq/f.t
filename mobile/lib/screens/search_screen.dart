@@ -34,22 +34,24 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     if (code.isEmpty) return;
     setState(() => _loading = true);
     try {
-      var (product, offline) = await ref.read(syncProvider).lookup(code);
+      var result = await ref.read(syncProvider).lookup(code);
       if (!mounted) return;
-      if (product == null) {
+      if (result.$1 == null) {
         // ليس كوداً: نبحث بالاسم
         final found = await _search(code);
         if (!mounted) return;
         if (found.length == 1 && found.first['code'] != null) {
-          (product, offline) = await ref.read(syncProvider).lookup('${found.first['code']}');
+          result = await ref.read(syncProvider).lookup('${found.first['code']}');
           if (!mounted) return;
         }
-        if (product == null) {
+        if (result.$1 == null) {
           showMsg(context, found.isEmpty ? 'لا يوجد منتج بهذا الاسم أو الكود «$code»' : 'اختر المنتج من النتائج (${found.length})',
               error: found.isEmpty);
           return;
         }
       }
+      final Map<String, dynamic> product = result.$1!;
+      final offline = result.$2;
       await AppStorage.addRecent(code);
       if (!mounted) return;
       Navigator.push(context, MaterialPageRoute(builder: (_) => ProductScreen(product: product, offline: offline)));

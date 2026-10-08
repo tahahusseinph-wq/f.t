@@ -179,11 +179,14 @@ def test_money_dialogs_open(app, db, admin, product_factory):
     rates = RatesTab()
     rates.refresh()
     assert "USD" in rates.spins
+    rates.deleteLater()
+    widgets = [dlg, ex]
     for d in (CloseShiftDialog(None), EmployeeDialog(None, emp.id), SalaryDialog(None, emp.id),
               AdvanceDialog(None, emp.id), PrintRateDialog(None, "USD", "$", "ل.س", 15000)):
         d.show()
         app.processEvents()
         d.done(0)
+        widgets.append(d)
     p = product_factory("منتج", qty=5)
     inv = sales_service.create_sale(db, admin, sales_service.SaleRequest([sales_service.CartLine(p.id, 1)]))
     db.commit()
@@ -195,3 +198,7 @@ def test_money_dialogs_open(app, db, admin, product_factory):
     prev._render()
     assert "16,000" in prev.view.toPlainText()
     prev.done(0)
+    widgets.append(prev)
+    for w in widgets:
+        w.deleteLater()
+    app.processEvents()
