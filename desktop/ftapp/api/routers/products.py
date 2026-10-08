@@ -13,14 +13,14 @@ from ftapp.api.schemas import ProductIn, StockChangeIn
 from ftapp.core.paths import sub_dir
 from ftapp.core.utils import now
 from ftapp.models import Product, SyncLog
-from ftapp.services import (catalog_service, codegen_service, currency_service, finance_service, inventory_service,
-                            settings_service as settings)
+from ftapp.services import catalog_service, codegen_service, currency_service, finance_service, inventory_service
 
 router = APIRouter(tags=["products"])
 
 
 def _view(db: Session, ctx: AuthContext, p: Product, currency: str | None = None) -> dict:
-    return catalog_service.product_view(db, p, ctx.privileged, currency_code=currency)
+    return catalog_service.product_view(db, p, ctx.privileged, currency_code=currency,
+                                        show_stock=ctx.can("inventory.view") or ctx.can("sales.create"))
 
 
 def compact(db: Session, ctx: AuthContext, p: Product, currency: str | None = None) -> dict:
@@ -164,12 +164,14 @@ def meta(ctx: AuthContext = Depends(current), db: Session = Depends(get_db)) -> 
         "categories": cats,
         "tiers": [{"id": t.id, "name": t.name, "is_default": t.is_default} for t in catalog_service.list_tiers(db)],
         "currencies": [{"code": c.code, "name": c.name, "symbol": c.symbol, "rate": c.rate, "is_base": c.is_base,
-                        "decimals": c.decimals} for c in currency_service.list_currencies(db)],
+                        "decimals": c.decimals, "unit": currency_service.nice(currency_service.unit_value(c))}
+                       for c in currency_service.list_currencies(db)],
+        "base_currency": currency_service.base(db).code,
         "display_currency": currency_service.display(db).code,
         "warehouses": [{"id": w.id, "name": w.name, "is_default": w.is_default}
                        for w in inventory_service.list_warehouses(db)],
         "units": catalog_service.UNITS,
-        "tax_rate": settings.get(db, "tax_rate"),
+        "tax_rate": 0,
         "shift_open": shift is not None,
     }
     if ctx.can("products.edit"):

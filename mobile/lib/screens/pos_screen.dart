@@ -38,6 +38,19 @@ class _PosScreenState extends ConsumerState<PosScreen> {
 
   Map<String, dynamic>? get _base => _currencies.where((c) => c['is_base'] == true).firstOrNull;
 
+  /// قيمة 1 من العملة بالعملة الأساسية (مثال: 1 دولار = 13000 ل.س).
+  double _unitOf(Map<String, dynamic>? c) {
+    final u = asNum(c?['unit']).toDouble();
+    if (u > 0) return u;
+    final r = asNum(c?['rate']).toDouble();
+    return r > 0 ? 1 / r : 1;
+  }
+
+  String _rateText(Map<String, dynamic> cur) {
+    final base = _base;
+    return '1 ${cur['symbol']} = ${fmtQty(_unitOf(cur))} ${base?['symbol'] ?? ''}';
+  }
+
   double _rateOf(String? code) {
     final c = _currencies.where((c) => c['code'] == code).firstOrNull;
     final r = asNum(c?['rate']).toDouble();
@@ -54,7 +67,6 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     final session = ref.read(sessionProvider);
     final list = _currencies;
     if (list.length < 2) return;
-    final base = _base;
     final code = await showModalBottomSheet<String>(
       context: context,
       builder: (c) => SafeArea(
@@ -69,7 +81,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
               title: Text('${cur['name']} (${cur['symbol']})'),
               subtitle: Text(cur['is_base'] == true
                   ? 'العملة الأساسية'
-                  : 'سعر الصرف: 1 ${base?['code'] ?? ''} = ${fmtQty(asNum(cur['rate']))} ${cur['symbol']}'),
+                  : 'سعر الصرف: ${_rateText(cur)}'),
               onTap: () => Navigator.pop(c, '${cur['code']}'),
             ),
           const SizedBox(height: 8),
@@ -87,8 +99,8 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     final session = ref.read(sessionProvider);
     final info = session.currencyInfo;
     if (info == null || info['is_base'] == true) return;
-    final old = asNum(info['rate']).toDouble();
-    final ctl = TextEditingController(text: '$old'.replaceAll(RegExp(r'\.0$'), ''));
+    final old = _unitOf(info);
+    final ctl = TextEditingController(text: fmtQty(old).replaceAll(',', ''));
     final value = await showDialog<double>(
       context: context,
       builder: (c) => AlertDialog(
@@ -97,7 +109,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           controller: ctl,
           autofocus: true,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: InputDecoration(labelText: 'كم تساوي 1 ${_base?['code'] ?? ''} بـ ${info['name']}؟'),
+          decoration: InputDecoration(labelText: 'كم تساوي 1 ${info['name']} بـ ${_base?['name'] ?? 'العملة الأساسية'}؟'),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(c), child: const Text('إلغاء')),
@@ -107,12 +119,12 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     );
     if (value == null || value <= 0 || value == old) return;
     try {
-      await session.api!.put('/currencies/${info['code']}/rate', {'rate': value});
+      await session.api!.put('/currencies/${info['code']}/rate', {'unit': value});
       await session.loadMeta();
       session.refresh();
-      ref.read(cartProvider).rescale(value / old);
+      ref.read(cartProvider).rescale(old / value);
       await _resyncPrices();
-      if (mounted) showMsg(context, 'تم تعديل سعر الصرف: 1 ${_base?['code'] ?? ''} = ${fmtQty(value)} ${info['symbol']}');
+      if (mounted) showMsg(context, 'تم تعديل سعر الصرف: 1 ${info['symbol']} = ${fmtQty(value)} ${_base?['symbol'] ?? ''}');
     } on ApiException catch (e) {
       if (mounted) showMsg(context, e.message, error: true);
     }
@@ -284,7 +296,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
         currencyLabel: session.currencyInfo == null ? '' : '${session.currencyInfo!['name']} (${session.currencyInfo!['symbol']})',
         rateLabel: session.currencyInfo == null || session.currencyInfo!['is_base'] == true
             ? ''
-            : '1 ${_base?['code'] ?? ''} = ${fmtQty(asNum(session.currencyInfo!['rate']))} $sym',
+            : _rateText(session.currencyInfo!),
         onCurrency: _currencies.length > 1 ? _pickCurrency : null,
         onRate: session.can('settings.manage') && session.currencyInfo?['is_base'] != true ? _editRate : null,
         shamRef: _shamRef,

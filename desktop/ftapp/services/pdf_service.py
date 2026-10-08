@@ -178,9 +178,16 @@ def invoice_context(session: Session, inv: Invoice, paper: str = "A4") -> dict[s
     titles = {"sale": style.get("sale_title") or "فاتورة مبيعات", "return": style.get("return_title") or "إشعار مرتجع",
               "quotation": style.get("quotation_title") or "عرض سعر"}
     base = currency_service.base(session)
-    alt_total = ""
+    alt_total = rate_note = ""
     if cur.code != base.code:
         alt_total = fmt_money(inv.total, base.symbol, base.decimals)
+        rate_note = f"1 {cur.symbol} = {fmt_money(currency_service.nice(1 / rate), base.symbol, 0)}"
+    else:
+        ref = currency_service.reference(session)
+        ref_rate = inv.ref_rate or (currency_service.unit_value(ref) if ref else 0)
+        if ref and ref_rate > 0:
+            alt_total = fmt_money(inv.total / ref_rate, ref.symbol, ref.decimals)
+            rate_note = f"1 {ref.symbol} = {fmt_money(ref_rate, base.symbol, 0)}"
     thermal = paper in ("80mm", "58mm")
     print_cfg = settings.get(session, "printing")
     status_note = "ملغاة" if inv.status == "cancelled" else ""
@@ -211,7 +218,7 @@ def invoice_context(session: Session, inv: Invoice, paper: str = "A4") -> dict[s
         "original": inv.original.number if inv.original else "",
         "totals": {"subtotal": m(inv.subtotal), "discount": m(inv.discount), "tax": m(inv.tax_amount),
                    "total": m(inv.total), "paid": m(inv.paid), "remaining": m(inv.remaining)},
-        "alt_total": alt_total, "status_note": status_note,
+        "alt_total": alt_total, "rate_note": rate_note, "status_note": status_note,
     }
 
 
@@ -232,6 +239,9 @@ def build_invoice_document(session: Session, inv: Invoice, paper: str = "A4") ->
     spacer = QImage(1, 1, QImage.Format.Format_ARGB32)
     spacer.fill(0)  # شفافة: تحجز ارتفاع خانات الختم والتوقيع
     doc.addResource(QTextDocument.ResourceType.ImageResource, "spacer", spacer)
+    sham = (settings.get(session, "company").get("shamcash_account") or "").strip()
+    if sham:  # رمز حساب شام كاش يُطبع QR يمسحه الزبون للدفع
+        doc.addResource(QTextDocument.ResourceType.ImageResource, "sham", QImage.fromData(barcode_service.qr_png(sham)))
     fb = facebook_link(settings.get(session, "company").get("facebook_url", ""))
     if fb:
         doc.addResource(QTextDocument.ResourceType.ImageResource, "fb", QImage.fromData(barcode_service.qr_png(fb)))

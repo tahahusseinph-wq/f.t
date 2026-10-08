@@ -84,7 +84,7 @@ def test_sync_ops_and_products(client, db, product_factory):
     assert again[0]["result"]["number"] == res[0]["result"]["number"]
     delta = client.get("/api/v1/sync/products", params={"since": full["server_time"]}, headers=h).json()
     assert any(i["id"] == p.id for i in delta["items"])
-    assert all("quantity" not in i for i in delta["items"])  # البائع لا يرى الكميات افتراضياً
+    assert all("quantity" in i for i in delta["items"])  # البائع يرى الكمية المتبقية في المستودع
     db.expire_all()
     assert p.quantity == 6
 
@@ -196,3 +196,80 @@ def test_invoice_sizes_change_render(db, admin, product_factory):
     ctx2 = pdf_service.invoice_context(db, inv, "A4")
     assert ctx2["name_fs"] > ctx1["name_fs"] and ctx2["logo_h"] < ctx1["logo_h"]
     assert pdf_service.invoice_pdf(db, inv, paper="A4").exists()
+
+
+def test_mobile_search_stock_rates_and_excel_import(client, db, admin, product_factory, tmp_path):
+    import base64
+
+    from openpyxl import Workbook
+
+    product_factory("شاشة سامسونج ذكية", cost=100000, margin=10, qty=7, code="TV-1")
+    auth_service.create_user(db, admin, "seller2", "Seller123", "seller")
+    db.commit()
+    hs = login(client, "seller2", "Seller123")
+    # البحث بالاسم بأكثر من كلمة وبكتابة مختلفة للتاء المربوطة
+    items = client.get("/api/v1/products", params={"q": "سامسونج شاشه"}, headers=hs).json()["items"]
+    assert len(items) == 1 and items[0]["code"] == "TV-1"
+    # البائع يرى الكمية المتبقية
+    assert items[0]["quantity"] == 7
+    assert client.get("/api/v1/products/lookup", params={"q": "TV-1"}, headers=hs).json()["quantity"] == 7
+
+    h = login(client)
+    meta = client.get("/api/v1/meta", headers=h).json()
+    usd = next(c for c in meta["currencies"] if c["code"] == "USD")
+    assert usd["unit"] == 15000 and meta["base_currency"] == "SYP" and meta["tax_rate"] == 0
+    r = client.put("/api/v1/currencies/USD/rate", headers=h, json={"unit": 14000})
+    assert r.status_code == 200 and r.json()["unit"] == 14000
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["الكود", "اسم المنتج", "سعر التكلفة", "الكمية"])
+    ws.append(["X-1", "مروحة", 50000, 4])
+    ws.append(["X-2", "سخان", 75000, 2])
+    path = tmp_path / "p.xlsx"
+    wb.save(path)
+    b64 = base64.b64encode(path.read_bytes()).decode()
+    pv = client.post("/api/v1/products/import/preview", headers=h, json={"file_base64": b64, "filename": "p.xlsx"})
+    assert pv.status_code == 200, pv.text
+    data = pv.json()
+    assert data["total"] == 2 and "name" in data["mapping"].values()
+    res = client.post("/api/v1/products/import", headers=h, json={"file_id": data["file_id"], "mapping": data["mapping"]})
+    assert res.status_code == 200 and res.json()["created"] == 2
+    assert client.get("/api/v1/products/lookup", params={"q": "X-2"}, headers=h).json()["name"] == "سخان"
+    assert client.post("/api/v1/products/import/preview", headers=hs,
+                       json={"file_base64": b64, "filename": "p.xlsx"}).status_code == 403
+
+
+def test_permissions_apply_without_relogin(client, db, admin):
+    auth_service.create_user(db, admin, "seller3", "Seller123", "seller")
+    db.commit()
+    hs = login(client, "seller3", "Seller123")
+    assert "reports.view" not in client.get("/api/v1/auth/me", headers=hs).json()["permissions"]
+    h = login(client)
+    uid = next(u["id"] for u in client.get("/api/v1/users", headers=h).json() if u["username"] == "seller3")
+    assert client.patch(f"/api/v1/users/{uid}", headers=h, json={"permissions": {"reports.view": True}}).status_code == 200
+    assert "reports.view" in client.get("/api/v1/auth/me", headers=hs).json()["permissions"]
+
+
+def test_product_from_image_endpoint(client, db, admin, monkeypatch):
+    import base64
+
+    from ftapp.services import gemini_service
+
+    catalog_service.save_category(db, admin, "إلكترونيات")
+    db.commit()
+
+    def fake(session, image, mime="image/jpeg", hint="", field_names=None, categories=None):
+        assert image == b"img" and "إلكترونيات" in categories
+        return gemini_service.ImageProductInfo(
+            name="سماعة سوني WH-1000XM5", brand="Sony", model="WH-1000XM5", description="سماعة لاسلكية",
+            specs=[gemini_service.SpecItem(name="البطارية", value="30 ساعة")], suggested_category="إلكترونيات",
+            unit="قطعة", estimated_price_usd=2, warranty="سنة")
+    monkeypatch.setattr(gemini_service, "product_info_from_image", fake)
+    h = login(client)
+    r = client.post("/api/v1/ai/product-from-image", headers=h,
+                    json={"image_base64": base64.b64encode(b"img").decode()})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["brand"] == "Sony" and d["category_id"] and "البطارية" in d["details"]
+    assert d["estimated_price"] == 30000  # 2$ × 15000

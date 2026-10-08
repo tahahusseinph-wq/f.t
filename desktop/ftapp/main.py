@@ -53,6 +53,21 @@ def start_background_services() -> None:
 _scheduler = None
 
 
+def _prepare_currencies() -> None:
+    """الليرة السورية عملة أساسية والعملات الأربع مفعّلة. قبل تحويل بيانات قديمة تُؤخذ نسخة احتياطية."""
+    from ftapp.services import backup_service, currency_service
+
+    try:
+        with db.session_scope() as s:
+            need = currency_service.needs_main_base(s)
+        if need:
+            backup_service.create_backup(label="before_syp_base")
+        with db.session_scope() as s:
+            currency_service.prepare(s)
+    except Exception:
+        logging.getLogger(__name__).exception("currency preparation failed")
+
+
 def main() -> int:
     setup_logging()
     sys.excepthook = _excepthook
@@ -76,6 +91,8 @@ def main() -> int:
     db.run_migrations()
 
     from ftapp.services import auth_service, settings_service
+
+    _prepare_currencies()
 
     with db.session_scope() as s:
         auth_service.ensure_server_identity(s)

@@ -1,7 +1,7 @@
 """إعدادات المنشأة (تظهر على الفواتير) وأسعار صرف العملات — من تطبيق الموبايل."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -29,7 +29,8 @@ class CompanyIn(BaseModel):
 
 
 class RateIn(BaseModel):
-    rate: float = Field(gt=0)
+    rate: float | None = Field(default=None, gt=0)   # وحدات العملة مقابل 1 أساسية (النسخ القديمة)
+    unit: float | None = Field(default=None, gt=0)   # قيمة 1 من العملة بالعملة الأساسية (1$ = 13000 ل.س)
 
 
 def _company(db: Session) -> dict:
@@ -56,10 +57,15 @@ def put_company(body: CompanyIn, ctx: AuthContext = Depends(require("settings.ma
 @router.put("/currencies/{code}/rate")
 def set_rate(code: str, body: RateIn, ctx: AuthContext = Depends(require("settings.manage")),
              db: Session = Depends(get_db)) -> dict:
+    if body.rate is None and body.unit is None:
+        raise HTTPException(422, "أدخل سعر الصرف")
     cur = currency_service.get(db, code.upper())
-    cur = currency_service.save_currency(db, ctx.user, cur.code, cur.name, cur.symbol, body.rate, cur.decimals)
+    if body.unit is not None:
+        currency_service.set_unit_values(db, ctx.user, {cur.code: body.unit})
+    else:
+        cur = currency_service.save_currency(db, ctx.user, cur.code, cur.name, cur.symbol, body.rate, cur.decimals)
     return {"code": cur.code, "name": cur.name, "symbol": cur.symbol, "rate": cur.rate, "is_base": cur.is_base,
-            "decimals": cur.decimals}
+            "decimals": cur.decimals, "unit": currency_service.nice(currency_service.unit_value(cur))}
 
 
 # ---- تصميم وقياسات الفاتورة (للأدمن من الموبايل) ----

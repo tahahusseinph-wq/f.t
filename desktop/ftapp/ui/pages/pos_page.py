@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from ftapp.core.utils import fmt_money, fmt_qty
 from ftapp.models import Currency, Customer, Product
-from ftapp.services import (catalog_service, currency_service, finance_service, sales_service)
+from ftapp.services import (cash_service, catalog_service, currency_service, finance_service, sales_service)
 from ftapp.services.errors import ServiceError
 from ftapp.ui import icons
 from ftapp.ui.context import ctx
@@ -39,6 +39,87 @@ class CustomerQuickDialog(FormDialog):
             return sales_service.save_customer(s, self.name.text(), self.phone.text(), self.address.text().strip(), tier_id=self.tier.currentData()).id
 
 
+class ExchangeDialog(FormDialog):
+    """صرف عملات للزبون: بيع أو شراء دولار/يورو/ليرة تركية مقابل الليرة السورية.
+    يحدد من أين ينقص الصندوق وإلى أين يزيد، ويحسب الربح أو الخسارة مقارنة بسعر الصرف المعتمد."""
+
+    def __init__(self, parent) -> None:
+        super().__init__(parent, "صرف عملات", 500, "تنفيذ عملية الصرف")
+        with ctx.session() as (s, _):
+            base = currency_service.base(s)
+            self.base = (base.code, base.name, base.symbol, base.decimals)
+            self.curs = {c.code: (c.name, c.symbol, c.decimals, currency_service.nice(currency_service.unit_value(c)))
+                         for c in currency_service.list_currencies(s) if not c.is_base}
+        self.direction = self.combo("نوع العملية", [("بيع عملة للزبون (أعطيه دولار وآخذ ليرة)", "sell"),
+                                                    ("شراء عملة من الزبون (آخذ دولار وأعطيه ليرة)", "buy")])
+        self.currency = self.combo("العملة", [(f"{v[0]} ({v[1]})", k) for k, v in self.curs.items()],
+                                   "USD" if "USD" in self.curs else None)
+        self.amount = money_spin(1e12, 2)
+        self.row("المبلغ", self.amount)
+        self.rate = money_spin(1e9, 2, self.base[2])
+        self.official = muted("")
+        self.row("سعر الصرف المطبق", self.rate)
+        self.form.addRow("", self.official)
+        self.customer = self.line("اسم الزبون (اختياري)")
+        self.result = QLabel()
+        self.result.setWordWrap(True)
+        self.result.setStyleSheet("font-size: 11pt;")
+        self.form.addRow(self.result)
+        self.profit = QLabel()
+        self.profit.setObjectName("bigTotal")
+        self.form.addRow(self.profit)
+        self.direction.currentIndexChanged.connect(self._update)
+        self.currency.currentIndexChanged.connect(self._currency_changed)
+        self.amount.valueChanged.connect(self._update)
+        self.rate.valueChanged.connect(self._update)
+        self._currency_changed()
+        self.on_save = self._do
+        self.finish_layout()
+
+    def _currency_changed(self) -> None:
+        code = self.currency.currentData()
+        if code in self.curs:
+            name, symbol, dec, unit = self.curs[code]
+            self.amount.setSuffix(f" {symbol}")
+            self.rate.setValue(unit)
+            self.official.setText(f"السعر المعتمد في الإعدادات: 1 {symbol} = {unit:,.2f} {self.base[2]}")
+        self._update()
+
+    def _update(self) -> None:
+        code = self.currency.currentData()
+        if code not in self.curs:
+            return
+        name, symbol, dec, official = self.curs[code]
+        amount, rate = self.amount.value(), self.rate.value()
+        counter = round(amount * rate, self.base[3])
+        sell = self.direction.currentData() == "sell"
+        b = self.base[2]
+        if sell:
+            self.result.setText(f"الزبون يدفع: <b>{counter:,.{self.base[3]}f} {b}</b><br>"
+                                f"وتعطيه: <b>{amount:,.2f} {symbol}</b><br>"
+                                f"الصندوق: {name} ينقص {amount:,.2f} • {self.base[1]} تزيد {counter:,.{self.base[3]}f}")
+            profit = amount * (rate - official)
+        else:
+            self.result.setText(f"الزبون يعطيك: <b>{amount:,.2f} {symbol}</b><br>"
+                                f"وتدفع له: <b>{counter:,.{self.base[3]}f} {b}</b><br>"
+                                f"الصندوق: {name} يزيد {amount:,.2f} • {self.base[1]} تنقص {counter:,.{self.base[3]}f}")
+            profit = amount * (official - rate)
+        t = tokens()
+        if abs(profit) < 0.5:
+            self.profit.setText("بسعر الصرف المعتمد (بدون ربح أو خسارة)")
+            self.profit.setStyleSheet("")
+        else:
+            word = "ربح" if profit > 0 else "خسارة"
+            self.profit.setText(f"{word}: {abs(profit):,.0f} {b}")
+            self.profit.setStyleSheet(f"color: {t['success'] if profit > 0 else t['danger']};")
+
+    def _do(self):
+        with ctx.session() as (s, u):
+            ex = cash_service.create_exchange(s, u, self.direction.currentData(), self.currency.currentData(),
+                                              self.amount.value(), self.rate.value(), self.customer.text())
+            return ex.id
+
+
 class POSPage(Page):
     title = "نقطة البيع"
     subtitle = "كل عملية بيع تُصدر فاتورة فوراً • F2 للبحث • F9 لإتمام البيع وإصدار الفاتورة • Delete لحذف سطر"
@@ -52,6 +133,9 @@ class POSPage(Page):
         self.actions.addWidget(self.shift_label)
         self.shift_btn = button("فتح وردية", "clock", on_click=self._toggle_shift)
         self.actions.addWidget(self.shift_btn)
+        self.exchange_btn = button("صرف عملات", "money", on_click=self._exchange,
+                                   tooltip="بيع أو شراء دولار/يورو/ليرة تركية للزبون مع حساب الربح أو الخسارة")
+        self.actions.addWidget(self.exchange_btn)
 
         body = QHBoxLayout()
         body.setSpacing(14)
@@ -164,7 +248,6 @@ class POSPage(Page):
         totals = QGridLayout()
         totals.setVerticalSpacing(6)
         self.l_sub = QLabel()
-        self.l_tax = QLabel()
         self.discount = money_spin()
         self.discount.setEnabled(self.can_discount)
         self.discount.valueChanged.connect(self._recalc)
@@ -172,8 +255,6 @@ class POSPage(Page):
         totals.addWidget(self.l_sub, 0, 1, Qt.AlignmentFlag.AlignLeft)
         totals.addWidget(QLabel("خصم على الفاتورة"), 1, 0)
         totals.addWidget(self.discount, 1, 1)
-        totals.addWidget(QLabel("الضريبة"), 2, 0)
-        totals.addWidget(self.l_tax, 2, 1, Qt.AlignmentFlag.AlignLeft)
         panel.body.addLayout(totals)
         self.l_total = QLabel()
         self.l_total.setObjectName("bigTotal")
@@ -272,18 +353,19 @@ class POSPage(Page):
 
     def _toggle_shift(self) -> None:
         from ftapp.ui.pages.finance_page import CloseShiftDialog
+        from ftapp.ui.pages.finance_page import OpenShiftDialog
         if self._shift_open:
             CloseShiftDialog(self).exec()
         else:
-            amount, ok = QInputDialog.getDouble(self, "فتح وردية", "الرصيد النقدي الافتتاحي في الصندوق", 0, 0, 1e12, 2)
-            if not ok:
-                return
-            try:
-                with ctx.session() as (s, u):
-                    finance_service.open_shift(s, u, amount)
-            except ServiceError as exc:
-                error(self, str(exc))
+            OpenShiftDialog(self).exec()
         self._update_shift()
+
+    def _exchange(self) -> None:
+        if not self._shift_open and not confirm(self, "لا توجد وردية مفتوحة. تنفيذ الصرف بدون وردية؟\n"
+                                                    "(لن تُحتسب العملية ضمن صندوق أي وردية)"):
+            return
+        if ExchangeDialog(self).exec():
+            Toast.show_message(self, "تم تنفيذ عملية الصرف وتحديث الصندوق", "success")
 
     # ---------------- البحث ----------------
     def _update_suggestions(self) -> None:
@@ -296,7 +378,7 @@ class POSPage(Page):
             items, _ = catalog_service.search_products(s, text, limit=12)
             for p in items:
                 price, _promo = catalog_service.final_price(s, p, self.tier.currentData())
-                it = QListWidgetItem(f"{p.name}  —  {p.code}  •  {fmt_money(price)}  •  المتوفر {fmt_qty(p.quantity)}")
+                it = QListWidgetItem(f"{p.name}  —  {p.code}  •  {currency_service.format_amount(s, price)}  •  المتوفر {fmt_qty(p.quantity)}")
                 it.setData(Qt.ItemDataRole.UserRole, p.id)
                 if p.quantity <= 0:
                     it.setForeground(Qt.GlobalColor.red)
@@ -391,6 +473,7 @@ class POSPage(Page):
                 return
             stock = {p.id: p.quantity for p in [s.get(Product, l["pid"]) for l in self.cart]}
             base = currency_service.base(s)
+            rate_text = f"سعر الصرف: {currency_service.rate_label(s, cur)}" if cur.code != base.code else ""
         self.table.setRowCount(len(self.cart))
         t = tokens()
         for r, (line, c) in enumerate(zip(self.cart, calc["lines"])):
@@ -426,12 +509,11 @@ class POSPage(Page):
             self.table.setCellWidget(r, 5, rm)
         f = lambda v: fmt_money(conv(v), cur.symbol, cur.decimals)  # noqa: E731
         self.l_sub.setText(f(calc["subtotal"]))
-        self.l_tax.setText(f(calc["tax_amount"]) + (f" ({calc['tax_rate']:g}%)" if calc["tax_rate"] else ""))
         self.total_base = calc["total"]
         self.total_display = conv(calc["total"])
         self.l_total.setText(f(calc["total"]))
         self.l_alt.setText(fmt_money(calc["total"], base.symbol, base.decimals) if cur.code != base.code else "")
-        self.l_rate.setText(f"سعر الصرف: 1 {base.code} = {cur.rate:g} {cur.symbol}" if cur.code != base.code else "")
+        self.l_rate.setText(rate_text)
         self.rate_btn.setVisible(cur.code != base.code)
         self.pay_btn.setEnabled(bool(self.cart))
         self._update_change()
@@ -489,19 +571,20 @@ class POSPage(Page):
             base = currency_service.base(s)
             if cur.is_base:
                 return
-            code, name, symbol, rate, decimals = cur.code, cur.name, cur.symbol, cur.rate, cur.decimals
+            code, name, symbol, rate = cur.code, cur.name, cur.symbol, cur.rate
             base_code = base.code
-        value, ok = QInputDialog.getDouble(self, "سعر الصرف", f"كم تساوي 1 {base_code} بـ {name}؟",
-                                           rate, 0.0001, 1e12, 4)
-        if not ok or abs(value - rate) < 1e-9:
+        unit = currency_service.nice(1 / rate)
+        value, ok = QInputDialog.getDouble(self, "سعر الصرف", f"كم تساوي 1 {name} ({symbol}) بالعملة الأساسية ({base_code})؟",
+                                           unit, 0.0001, 1e12, 2)
+        if not ok or abs(value - unit) < 1e-9:
             return
         try:
             with ctx.session() as (s, u):
-                currency_service.save_currency(s, u, code, name, symbol, value, decimals)
+                currency_service.set_unit_values(s, u, {code: value})
         except ServiceError as exc:
             error(self, str(exc))
             return
-        Toast.show_message(self, f"تم تعديل سعر الصرف: 1 {base_code} = {value:g} {symbol}", "success")
+        Toast.show_message(self, f"تم تعديل سعر الصرف: 1 {symbol} = {value:,.2f} {base_code}", "success")
         self._recalc()
 
     def _customer_changed(self) -> None:

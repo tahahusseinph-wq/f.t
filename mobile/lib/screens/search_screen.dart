@@ -10,6 +10,7 @@ import '../core/storage.dart';
 import '../state/session.dart';
 import '../state/sync.dart';
 import '../widgets/common.dart';
+import 'import_screen.dart';
 import 'product_edit_screen.dart';
 import 'product_screen.dart';
 import 'scanner_screen.dart';
@@ -33,11 +34,21 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     if (code.isEmpty) return;
     setState(() => _loading = true);
     try {
-      final (product, offline) = await ref.read(syncProvider).lookup(code);
+      var (product, offline) = await ref.read(syncProvider).lookup(code);
       if (!mounted) return;
       if (product == null) {
-        showMsg(context, 'لا يوجد منتج بالكود «$code»', error: true);
-        return;
+        // ليس كوداً: نبحث بالاسم
+        final found = await _search(code);
+        if (!mounted) return;
+        if (found.length == 1 && found.first['code'] != null) {
+          (product, offline) = await ref.read(syncProvider).lookup('${found.first['code']}');
+          if (!mounted) return;
+        }
+        if (product == null) {
+          showMsg(context, found.isEmpty ? 'لا يوجد منتج بهذا الاسم أو الكود «$code»' : 'اختر المنتج من النتائج (${found.length})',
+              error: found.isEmpty);
+          return;
+        }
       }
       await AppStorage.addRecent(code);
       if (!mounted) return;
@@ -54,23 +65,25 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     _debounce = Timer(const Duration(milliseconds: 300), () => _search(text));
   }
 
-  Future<void> _search(String text) async {
+  /// البحث بالاسم أو الكود أو الماركة (كل كلمة تُطابق بأي ترتيب).
+  Future<List<Map<String, dynamic>>> _search(String text) async {
     if (text.trim().length < 2) {
-      setState(() => _results = []);
-      return;
+      if (mounted) setState(() => _results = []);
+      return [];
     }
     final session = ref.read(sessionProvider);
+    var found = <Map<String, dynamic>>[];
     try {
       final res = await session.api!.get<Map<String, dynamic>>('/products', query: {
-        'q': text, 'limit': 30, if (session.currency != null) 'currency': session.currency,
+        'q': text.trim(), 'limit': 40, if (session.currency != null) 'currency': session.currency,
       });
-      if (mounted) setState(() => _results = (res['items'] as List).cast<Map<String, dynamic>>());
+      found = (res['items'] as List).cast<Map<String, dynamic>>();
     } on ApiException catch (e) {
-      if (e.offline) {
-        final local = await OfflineDb.search(text);
-        if (mounted) setState(() => _results = local);
-      }
+      if (!e.offline) return [];
+      found = await OfflineDb.search(text.trim());
     }
+    if (mounted) setState(() => _results = found);
+    return found;
   }
 
   Future<void> _scan() async {
@@ -98,10 +111,17 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       if (session.can('products.edit'))
         Align(
           alignment: AlignmentDirectional.centerEnd,
-          child: FilledButton.tonalIcon(onPressed: _newProduct, icon: const Icon(Icons.add), label: const Text('منتج جديد')),
+          child: Wrap(spacing: 8, runSpacing: 8, children: [
+            OutlinedButton.icon(
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ImportScreen())),
+              icon: const Icon(Icons.table_view_rounded),
+              label: const Text('استيراد Excel'),
+            ),
+            FilledButton.tonalIcon(onPressed: _newProduct, icon: const Icon(Icons.add), label: const Text('منتج جديد')),
+          ]),
         ),
       Text('أهلاً ${session.displayName} 👋', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
-      Text('ابحث عن أي منتج بالكود أو امسح الباركود', style: TextStyle(color: scheme.outline)),
+      Text('ابحث عن أي منتج بالاسم أو الكود، أو امسح الباركود', style: TextStyle(color: scheme.outline)),
       const SizedBox(height: 16),
       Row(children: [
         Expanded(
@@ -133,7 +153,13 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               ListTile(
                 leading: ProductImage(api: session.api, name: p['image'] as String?, size: 44),
                 title: Text('${p['name']}', maxLines: 1, overflow: TextOverflow.ellipsis),
-                subtitle: Text('${p['code']}', textDirection: TextDirection.ltr, textAlign: TextAlign.right),
+                subtitle: Row(children: [
+                  Flexible(child: Text('${p['code']}', textDirection: TextDirection.ltr, overflow: TextOverflow.ellipsis)),
+                  if (p['quantity'] != null) ...[
+                    const SizedBox(width: 8),
+                    _StockBadge(quantity: asNum(p['quantity']), unit: '${p['unit'] ?? ''}'),
+                  ],
+                ]),
                 trailing: p['sale_price'] == null
                     ? null
                     : Text(fmtMoney(asNum(p['sale_price']), '${p['currency_symbol'] ?? ''}'), style: const TextStyle(fontWeight: FontWeight.w700)),
@@ -153,5 +179,26 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           child: EmptyState(icon: Icons.qr_code_2_rounded, text: 'امسح باركود المنتج لمعرفة سعره وتفاصيله'),
         ),
     ]);
+  }
+}
+
+
+/// الكمية المتبقية في المستودع (أحمر إذا نفدت).
+class _StockBadge extends StatelessWidget {
+  const _StockBadge({required this.quantity, required this.unit});
+
+  final num quantity;
+  final String unit;
+
+  @override
+  Widget build(BuildContext context) {
+    final out = quantity <= 0;
+    final color = out ? Colors.red : Colors.green.shade700;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(10)),
+      child: Text(out ? 'نفدت الكمية' : 'باقي ${fmtQty(quantity)} $unit'.trim(),
+          style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700)),
+    );
   }
 }

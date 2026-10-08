@@ -21,7 +21,6 @@ class _CompanyScreenState extends ConsumerState<CompanyScreen> {
     ('address', 'العنوان', Icons.place_outlined, false),
     ('phone', 'الهاتف', Icons.phone_outlined, true),
     ('email', 'البريد', Icons.alternate_email, true),
-    ('tax_number', 'الرقم الضريبي', Icons.numbers, true),
     ('invoice_footer', 'عبارة أسفل الفاتورة', Icons.short_text, false),
   ];
 
@@ -32,7 +31,6 @@ class _CompanyScreenState extends ConsumerState<CompanyScreen> {
       'address',
       'phone',
       'email',
-      'tax_number',
       'invoice_footer',
       'invoice_details',
       'facebook_url',
@@ -204,7 +202,7 @@ class _CompanyScreenState extends ConsumerState<CompanyScreen> {
           child: Column(
             children: [
               _field('facebook_url', 'صفحة الفيسبوك (تُطبع كرمز QR)', Icons.facebook, ltr: true, hint: 'https://facebook.com/YourPage'),
-              _field('shamcash_account', 'حساب شام كاش لاستلام الدفعات', Icons.account_balance_wallet_outlined),
+              _field('shamcash_account', 'رمز حساب شام كاش (يُطبع QR على الفاتورة)', Icons.account_balance_wallet_outlined),
               Text('الشعار يُغيَّر من إعدادات برنامج الكمبيوتر.', style: TextStyle(color: clay.muted, fontSize: 12)),
             ],
           ),

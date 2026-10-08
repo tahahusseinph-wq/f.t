@@ -29,8 +29,8 @@ class SetupData:
     company_name: str = ""
     company_address: str = ""
     company_phone: str = ""
-    base_currency: str = "USD"
-    secondary_currency: str | None = "SYP"
+    base_currency: str = "SYP"
+    secondary_currency: str | None = "USD"
     secondary_rate: float = 0.0
     gemini_key: str = ""
 

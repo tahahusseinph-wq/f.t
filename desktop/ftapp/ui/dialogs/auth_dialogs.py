@@ -197,7 +197,8 @@ class SetupWizard(QDialog):
         for code, (name, symbol, _) in KNOWN_CURRENCIES.items():
             self.base_cur.addItem(f"{name} ({symbol})", code)
             self.second_cur.addItem(f"{name} ({symbol})", code)
-        self.second_cur.setCurrentIndex(self.second_cur.findData("SYP"))
+        self.base_cur.setCurrentIndex(self.base_cur.findData("SYP"))
+        self.second_cur.setCurrentIndex(self.second_cur.findData("USD"))
         self.rate = money_spin(10**9, 2)
         self.rate.setValue(13000)
         self.rate_label = QLabel()
@@ -206,7 +207,7 @@ class SetupWizard(QDialog):
         def update_rate_label() -> None:
             b, s = self.base_cur.currentData(), self.second_cur.currentData()
             self.rate.setEnabled(bool(s) and s != b)
-            self.rate_label.setText(f"كم {s} يساوي 1 {b}؟ (يمكن تعديله لاحقاً من الإعدادات)" if s else "")
+            self.rate_label.setText(f"كم {b} يساوي 1 {s}؟ (يمكن تعديله لاحقاً من الإعدادات ← أسعار الصرف)" if s else "")
         self.base_cur.currentIndexChanged.connect(update_rate_label)
         self.second_cur.currentIndexChanged.connect(update_rate_label)
         update_rate_label()

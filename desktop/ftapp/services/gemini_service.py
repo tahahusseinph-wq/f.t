@@ -19,7 +19,7 @@ from ftapp.services.errors import ServiceError
 
 log = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.8-flash"
 CACHE_KINDS = {"details", "code"}
 
 

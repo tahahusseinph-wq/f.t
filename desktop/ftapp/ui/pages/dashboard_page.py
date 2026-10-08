@@ -52,14 +52,15 @@ class DashboardPage(Page):
         self.k_credit = KpiCard("مبيعات آجلة", "wallet", t["danger"])
         self.k_expenses = KpiCard("المصاريف", "minus", "#8D6E63")
         self.k_products = KpiCard("المنتجات الفعالة", "box", "#5C6BC0")
+        self.k_exchange = KpiCard("ربح / خسارة صرف العملات", "money", "#00838F")
         cards = [self.k_sales, self.k_profit, self.k_invoices, self.k_stock, self.k_avg, self.k_credit,
-                 self.k_expenses, self.k_products]
+                 self.k_expenses, self.k_exchange, self.k_products]
         if not ctx.can("products.view_cost"):
-            cards = [c for c in cards if c not in (self.k_profit, self.k_stock, self.k_expenses)]
-            for c in (self.k_profit, self.k_stock, self.k_expenses):
+            cards = [c for c in cards if c not in (self.k_profit, self.k_stock, self.k_expenses, self.k_exchange)]
+            for c in (self.k_profit, self.k_stock, self.k_expenses, self.k_exchange):
                 c.hide()
         for i, card in enumerate(cards):
-            kpis.addWidget(card, i // 4, i % 4)
+            kpis.addWidget(card, i // 5, i % 5)
         grid.addLayout(kpis)
 
         row1 = QHBoxLayout()
@@ -151,6 +152,12 @@ class DashboardPage(Page):
         self.k_credit.set(fmt(k["credit"]), f"المرتجعات {fmt(k['returns'])}" if k["returns"] else "")
         self.k_expenses.set(fmt(k["expenses"]))
         self.k_products.set(f"{k['products']:,}", f"{k['stock_units']:,.0f} قطعة في المستودع")
+        ex = k["exchange_profit"]
+        word = "ربح" if ex > 0 else ("خسارة" if ex < 0 else "")
+        self.k_exchange.set(f"{word} {fmt(abs(ex))}".strip(),
+                            f"{k['exchanges']} عملية • أرباح {fmt(k['exchange_gains'])} • خسائر {fmt(k['exchange_losses'])}"
+                            if k["exchanges"] else "لا عمليات صرف في هذه الفترة",
+                            t["success"] if ex > 0 else (t["danger"] if ex < 0 else None))
 
         show_profit = ctx.can("products.view_cost")
         self.sales_chart.set_data([r["label"] for r in series], [conv(r["sales"]) for r in series],

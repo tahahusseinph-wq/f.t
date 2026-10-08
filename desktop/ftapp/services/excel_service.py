@@ -272,7 +272,7 @@ def export_table(path: Path | str, title: str, headers: list[str], rows: Iterabl
     wb = Workbook()
     ws = wb.active
     ws.title = _safe_sheet_name(title, set())
-    symbol = "$"
+    symbol = ""
     if session is not None:
         start = _write_title(ws, session, title, len(headers), with_logo=False)
         symbol = currency_service.base(session).symbol

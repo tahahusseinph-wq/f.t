@@ -82,8 +82,8 @@ def compute_totals(session: Session, req: SaleRequest) -> dict[str, Any]:
     discount = money(req.discount or 0)
     if discount > subtotal:
         raise ValidationError("الخصم أكبر من إجمالي الفاتورة")
-    tax_rate = settings.get(session, "tax_rate") if req.tax_rate is None else req.tax_rate
-    tax_amount = money((subtotal - discount) * (tax_rate or 0) / 100.0)
+    tax_rate = 0.0  # لا توجد ضريبة على المبيعات
+    tax_amount = 0.0
     total = money(subtotal - discount + tax_amount)
     return {"lines": lines, "subtotal": subtotal, "discount": discount, "tax_rate": tax_rate or 0,
             "tax_amount": tax_amount, "total": total, "cost_total": money(cost_total), "tier_id": tier_id}
@@ -111,6 +111,8 @@ def _fill_header(session: Session, inv: Invoice, req: SaleRequest, calc: dict[st
     inv.warehouse_id = req.warehouse_id or inventory_service.default_warehouse(session).id
     inv.tier_id = calc["tier_id"]
     inv.currency_code, inv.exchange_rate = cur.code, cur.rate
+    ref = currency_service.reference(session)
+    inv.ref_rate = currency_service.unit_value(ref) if ref else 0.0
     inv.subtotal, inv.discount = calc["subtotal"], calc["discount"]
     inv.tax_rate, inv.tax_amount, inv.total = calc["tax_rate"], calc["tax_amount"], calc["total"]
     inv.cost_total = calc["cost_total"]
@@ -156,6 +158,8 @@ def create_sale(session: Session, actor: User | None, req: SaleRequest, agreed_p
     session.add(inv)
     session.flush()
 
+    _cash_in(session, actor, inv, paid, "sale")
+
     for item in inv.items:
         inventory_service.adjust(session, actor, item.product_id, inv.warehouse_id, -item.quantity, "sale",
                                  f"فاتورة {inv.number}", "invoice", inv.id, allow_negative=allow_neg)
@@ -179,6 +183,19 @@ def create_sale(session: Session, actor: User | None, req: SaleRequest, agreed_p
     session.flush()
     bus.publish(SALES_CHANGED, invoice_id=inv.id)
     return inv
+
+
+def _cash_in(session: Session, actor: User | None, inv: Invoice, amount_base: float, kind: str) -> None:
+    """حركة الصندوق الفعلية بعملة الفاتورة (شام كاش لا يدخل الصندوق)."""
+    from ftapp.services import cash_service
+
+    if not amount_base or inv.payment_method == "shamcash":
+        return
+    rate = inv.exchange_rate or 1
+    sign = 1 if kind == "sale" else -1
+    label = {"sale": f"فاتورة {inv.number}", "return": f"مرتجع {inv.number}", "cancel": f"إلغاء {inv.number}"}[kind]
+    cash_service.record(session, actor, inv.currency_code, sign * amount_base * rate,
+                        "sale" if kind == "sale" else "return", "invoice", inv.id, label)
 
 
 def create_quotation(session: Session, actor: User | None, req: SaleRequest) -> Invoice:
@@ -267,6 +284,7 @@ def create_return(session: Session, actor: User | None, original_id: int, items:
         ret.paid = 0.0
     else:
         ret.paid = ret.total
+        _cash_in(session, actor, ret, ret.paid, "return")
     audit.log(session, actor, "return", "invoice", ret.id, original=orig.number, total=ret.total)
     bus.publish(SALES_CHANGED, invoice_id=ret.id)
     return ret
@@ -288,10 +306,26 @@ def cancel_invoice(session: Session, actor: User | None, invoice_id: int, reason
     if inv.customer_id and inv.remaining > 0:
         cust = session.get(Customer, inv.customer_id)
         cust.balance = money(cust.balance - inv.remaining)
+    _cash_in(session, actor, inv, inv.paid, "cancel")
     inv.status = "cancelled"
     inv.notes = (inv.notes + f"\nسبب الإلغاء: {reason}").strip() if reason else inv.notes
     audit.log(session, actor, "invoice_cancelled", "invoice", inv.id, number=inv.number, reason=reason)
     bus.publish(SALES_CHANGED, invoice_id=inv.id)
+    return inv
+
+
+def set_invoice_ref_rate(session: Session, actor: User | None, invoice_id: int, unit: float,
+                         update_global: bool = True) -> Invoice:
+    """تعديل سعر صرف الدولار المطبوع على الفاتورة (سطر «ما يعادل»)، واختيارياً سعر الصرف العام."""
+    if unit <= 0:
+        raise ValidationError("أدخل سعر صرف أكبر من صفر")
+    inv = get_invoice(session, invoice_id)
+    inv.ref_rate = unit
+    ref = currency_service.reference(session)
+    if update_global and ref is not None:
+        currency_service.set_unit_values(session, actor, {ref.code: unit})
+    audit.log(session, actor, "invoice_rate", "invoice", inv.id, rate=unit)
+    session.flush()
     return inv
 
 
@@ -370,8 +404,9 @@ def delete_customer(session: Session, customer_id: int) -> None:
 
 
 def receive_payment(session: Session, actor: User | None, customer_id: int, amount: float, notes: str = "",
-                    method: str = "cash") -> CustomerPayment:
-    from ftapp.services import finance_service
+                    method: str = "cash", currency_code: str | None = None) -> CustomerPayment:
+    """amount بالعملة الأساسية. currency_code: العملة التي دفع بها الزبون نقداً (تدخل الصندوق بها)."""
+    from ftapp.services import cash_service, finance_service
 
     c = session.get(Customer, customer_id)
     if c is None:
@@ -383,10 +418,15 @@ def receive_payment(session: Session, actor: User | None, customer_id: int, amou
     shift = finance_service.current_shift(session, actor) if actor else None
     pay = CustomerPayment(customer_id=c.id, amount=money(amount), notes=notes, method=method, user_id=actor.id if actor else None,
                           shift_id=shift.id if shift else None)
+    cur = (session.get(Currency, currency_code) if currency_code else None) or currency_service.base(session)
+    pay.currency_code, pay.currency_amount = cur.code, currency_service.convert(amount, cur)
     session.add(pay)
     c.balance = money(c.balance - amount)
     audit.log(session, actor, "payment", "customer", c.id, amount=amount)
     session.flush()
+    if method == "cash":
+        cash_service.record(session, actor, cur.code, pay.currency_amount, "payment", "payment", pay.id,
+                            f"دفعة من {c.name}", shift)
     bus.publish(SALES_CHANGED)
     return pay
 

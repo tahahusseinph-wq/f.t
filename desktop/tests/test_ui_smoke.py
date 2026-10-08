@@ -151,3 +151,47 @@ def test_product_info_from_image_fills_dialog(app, db, admin, monkeypatch, tmp_p
     assert p.category_id == db.query(Category).filter_by(name="سماعات").one().id
     assert len(p.images) == 1 and catalog_service.image_path(p.images[0]).exists()
     assert p.warranty == "سنة"
+
+
+def test_money_dialogs_open(app, db, admin, product_factory):
+    from ftapp.services import finance_service, payroll_service, sales_service, settings_service
+    from ftapp.ui.context import ctx
+    from ftapp.ui.dialogs.invoice_preview import InvoicePreviewDialog, PrintRateDialog
+    from ftapp.ui.pages.finance_page import (AdvanceDialog, CloseShiftDialog, EmployeeDialog, OpenShiftDialog,
+                                             SalaryDialog)
+    from ftapp.ui.pages.pos_page import ExchangeDialog
+    from ftapp.ui.pages.rates_tab import RatesTab
+
+    ctx.set_user(admin)
+    settings_service.update(db, "company", shamcash_account="a1b2c3d4e5f6")
+    emp = payroll_service.save_employee(db, "سامر", "daily", 50000)
+    db.commit()
+    dlg = OpenShiftDialog(None)
+    dlg.spins["USD"].setValue(100)
+    dlg.spins["SYP"].setValue(250000)
+    dlg._save()
+    finance_service.current_shift(db, admin)
+    ex = ExchangeDialog(None)
+    ex.amount.setValue(10)
+    ex.rate.setValue(15500)
+    assert "ربح" in ex.profit.text()
+    ex._save()
+    rates = RatesTab()
+    rates.refresh()
+    assert "USD" in rates.spins
+    for d in (CloseShiftDialog(None), EmployeeDialog(None, emp.id), SalaryDialog(None, emp.id),
+              AdvanceDialog(None, emp.id), PrintRateDialog(None, "USD", "$", "ل.س", 15000)):
+        d.show()
+        app.processEvents()
+        d.done(0)
+    p = product_factory("منتج", qty=5)
+    inv = sales_service.create_sale(db, admin, sales_service.SaleRequest([sales_service.CartLine(p.id, 1)]))
+    db.commit()
+    prev = InvoicePreviewDialog(None, inv.id)
+    text = prev.view.toPlainText()
+    assert "سعر الصرف" in text and "شام كاش" in text and "الضريبة" not in text
+    sales_service.set_invoice_ref_rate(db, admin, inv.id, 16000, update_global=True)
+    db.commit()
+    prev._render()
+    assert "16,000" in prev.view.toPlainText()
+    prev.done(0)

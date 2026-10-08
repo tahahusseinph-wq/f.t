@@ -73,12 +73,16 @@ def kpis(session: Session, p: Period) -> dict[str, Any]:
     net_sales = money(sales - returns)
     gross = money(net_sales - (cost - returns_cost))
     expenses = finance_service.expenses_total(session, p.start, p.end)
+    from ftapp.services import cash_service
+    exch = cash_service.exchange_profit(session, p.start_dt, p.end_dt)
     val = inventory_service.valuation(session)
     products = session.scalar(select(func.count(Product.id)).where(Product.is_active.is_(True))) or 0
     return {
         "sales": net_sales, "gross_sales": sales, "returns": returns, "invoices": count,
         "cost": money(cost - returns_cost), "gross_profit": gross, "expenses": expenses,
-        "net_profit": money(gross - expenses), "avg_invoice": money(sales / count) if count else 0.0,
+        "net_profit": money(gross - expenses + exch["net"]),
+        "exchange_profit": exch["net"], "exchange_gains": exch["gains"], "exchange_losses": exch["losses"],
+        "exchanges": exch["count"], "avg_invoice": money(sales / count) if count else 0.0,
         "collected": collected, "credit": money(_sum(session, Invoice.total, p, "sale") - collected),
         "margin_percent": round(gross / net_sales * 100, 1) if net_sales else 0.0,
         "stock_cost": val["cost"], "stock_value": val["sale"], "stock_units": val["units"], "products": products,

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ftapp.core.utils import money, now
 from ftapp.models import CustomerPayment, Expense, ExpenseCategory, Invoice, Shift, User
-from ftapp.services import audit
+from ftapp.services import audit, cash_service, currency_service
 from ftapp.services.errors import NotFound, ValidationError
 
 
@@ -37,8 +37,8 @@ def delete_expense_category(session: Session, category_id: int) -> None:
 
 
 def add_expense(session: Session, actor: User | None, amount: float, category_id: int | None, description: str = "",
-                expense_date: date | None = None, paid_from_cash: bool = True, expense_id: int | None = None
-                ) -> Expense:
+                expense_date: date | None = None, paid_from_cash: bool = True, expense_id: int | None = None,
+                kind: str = "expense") -> Expense:
     if amount <= 0:
         raise ValidationError("أدخل مبلغاً صحيحاً")
     exp = session.get(Expense, expense_id) if expense_id else None
@@ -50,6 +50,11 @@ def add_expense(session: Session, actor: User | None, amount: float, category_id
     exp.amount, exp.category_id, exp.description = money(amount), category_id, description
     exp.expense_date, exp.paid_from_cash = expense_date or date.today(), paid_from_cash
     session.flush()
+    # خروج المبلغ من صندوق الوردية بالعملة الأساسية
+    cash_service.reverse(session, "expense", exp.id)
+    if paid_from_cash and exp.shift_id:
+        cash_service.record(session, actor, currency_service.base(session).code, -exp.amount, kind, "expense",
+                            exp.id, description or "مصروف", session.get(Shift, exp.shift_id))
     audit.log(session, actor, "expense", "expense", exp.id, amount=amount)
     return exp
 
@@ -57,6 +62,7 @@ def add_expense(session: Session, actor: User | None, amount: float, category_id
 def delete_expense(session: Session, expense_id: int) -> None:
     exp = session.get(Expense, expense_id)
     if exp:
+        cash_service.reverse(session, "expense", exp.id)
         session.delete(exp)
 
 
@@ -86,15 +92,24 @@ def current_shift(session: Session, user: User | None) -> Shift | None:
                           .order_by(Shift.id.desc()))
 
 
-def open_shift(session: Session, actor: User, opening_cash: float = 0.0) -> Shift:
+def open_shift(session: Session, actor: User, opening_cash: float = 0.0,
+               balances: dict[str, float] | None = None) -> Shift:
+    """balances: الرصيد الافتتاحي لكل عملة {"SYP": 500000, "USD": 200}. بدونه يُعتبر opening_cash بالعملة الأساسية."""
     if current_shift(session, actor):
         raise ValidationError("لديك وردية مفتوحة مسبقاً")
-    if opening_cash < 0:
-        raise ValidationError("الرصيد الافتتاحي لا يمكن أن يكون سالباً")
-    shift = Shift(user_id=actor.id, opening_cash=money(opening_cash))
+    if balances is None:
+        balances = {currency_service.base(session).code: opening_cash}
+    clean: dict[str, float] = {}
+    for cur in currency_service.list_currencies(session):
+        v = float(balances.get(cur.code, 0) or 0)
+        if v < 0:
+            raise ValidationError("الرصيد الافتتاحي لا يمكن أن يكون سالباً")
+        clean[cur.code] = round(v, cur.decimals)
+    shift = Shift(user_id=actor.id, opening_balances=clean,
+                  opening_cash=cash_service.balances_in_base(session, clean))
     session.add(shift)
     session.flush()
-    audit.log(session, actor, "shift_opened", "shift", shift.id, opening=opening_cash)
+    audit.log(session, actor, "shift_opened", "shift", shift.id, opening=clean)
     return shift
 
 
@@ -123,18 +138,29 @@ def shift_summary(session: Session, shift: Shift) -> dict[str, float]:
     shamcash = money(sham_sales
                      + session.scalar(select(func.coalesce(func.sum(CustomerPayment.amount), 0))
                                       .where(CustomerPayment.shift_id == shift.id, CustomerPayment.method == "shamcash")))
-    expected = money(shift.opening_cash + sales_cash - refunds + payments - expenses)
-    return {"opening": shift.opening_cash, "sales_cash": sales_cash, "sales_total": sales_total,
+    by_currency = cash_service.shift_balances(session, shift)
+    if shift.opening_balances:   # وردية بنظام الصندوق متعدد العملات
+        expected = cash_service.balances_in_base(session, {c: b["expected"] for c, b in by_currency.items()})
+    else:                        # ورديات قديمة قبل تعدد العملات
+        expected = money(shift.opening_cash + sales_cash - refunds + payments - expenses)
+    return {"by_currency": by_currency, "opening": shift.opening_cash, "sales_cash": sales_cash, "sales_total": sales_total,
             "credit_sales": money(sales_total - sales_cash - sham_sales), "shamcash": shamcash, "refunds": refunds, "payments": payments,
             "expenses": expenses, "expected": expected, "invoices": count("sale"), "returns": count("return")}
 
 
-def close_shift(session: Session, actor: User, actual_cash: float, notes: str = "", shift_id: int | None = None
-                ) -> Shift:
+def close_shift(session: Session, actor: User, actual_cash: float | None = None, notes: str = "",
+                shift_id: int | None = None, actual_balances: dict[str, float] | None = None) -> Shift:
+    """actual_balances: المبلغ المعدود فعلياً لكل عملة. الفرق الإجمالي يُحسب بالعملة الأساسية."""
     shift = session.get(Shift, shift_id) if shift_id else current_shift(session, actor)
     if shift is None or shift.status != "open":
         raise NotFound("لا توجد وردية مفتوحة")
     summary = shift_summary(session, shift)
+    shift.expected_balances = {c: b["expected"] for c, b in summary["by_currency"].items()}
+    if actual_balances is not None:
+        shift.actual_balances = {c: float(v or 0) for c, v in actual_balances.items()}
+        actual_cash = cash_service.balances_in_base(session, shift.actual_balances)
+    elif actual_cash is None:
+        actual_cash = summary["expected"]
     shift.expected_cash = summary["expected"]
     shift.actual_cash = money(actual_cash)
     shift.difference = money(actual_cash - summary["expected"])

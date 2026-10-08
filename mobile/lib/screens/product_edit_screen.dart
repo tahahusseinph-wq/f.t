@@ -1,7 +1,12 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../core/api.dart';
+import '../core/format.dart';
 import '../state/session.dart';
 import '../widgets/common.dart';
 
@@ -30,6 +35,10 @@ class _ProductEditScreenState extends ConsumerState<ProductEditScreen> {
   bool _saving = false;
   Object? _error;
   String _baseCurrency = '';
+  XFile? _photo;
+  String _photoMime = 'image/jpeg';
+  bool _attachPhoto = true;
+  bool _aiBusy = false;
 
   bool get _isNew => widget.productId == null;
 
@@ -112,6 +121,14 @@ class _ProductEditScreenState extends ConsumerState<ProductEditScreen> {
       final res = _isNew
           ? await api.post<Map<String, dynamic>>('/products', body)
           : await api.put<Map<String, dynamic>>('/products/${widget.productId}', body);
+      if (_photo != null && _attachPhoto && res['id'] != null) {
+        try {
+          final bytes = await _photo!.readAsBytes();
+          await api.post('/products/${res['id']}/image', {'image_base64': base64Encode(bytes), 'mime': _photoMime});
+        } on ApiException catch (e) {
+          if (mounted) showMsg(context, 'تم حفظ المنتج لكن تعذر رفع الصورة: ${e.message}', error: true);
+        }
+      }
       if (!mounted) return;
       showMsg(context, _isNew ? 'تمت إضافة المنتج' : 'تم حفظ التعديلات');
       Navigator.pop(context, res);
@@ -119,6 +136,87 @@ class _ProductEditScreenState extends ConsumerState<ProductEditScreen> {
       if (mounted) showMsg(context, e.message, error: true);
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  /// يصوّر المنتج (أو يختار صورته) ويجلب كل تفاصيله بالذكاء الاصطناعي.
+  Future<void> _fromImage() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (c) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('صورة المنتج', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+          ),
+          ListTile(
+            leading: const Icon(Icons.photo_camera_outlined),
+            title: const Text('تصوير بالكاميرا'),
+            onTap: () => Navigator.pop(c, ImageSource.camera),
+          ),
+          ListTile(
+            leading: const Icon(Icons.photo_library_outlined),
+            title: const Text('اختيار من المعرض'),
+            onTap: () => Navigator.pop(c, ImageSource.gallery),
+          ),
+          const SizedBox(height: 8),
+        ]),
+      ),
+    );
+    if (source == null) return;
+    final XFile? file;
+    try {
+      file = await ImagePicker().pickImage(source: source, maxWidth: 1600, maxHeight: 1600, imageQuality: 85);
+    } catch (e) {
+      if (mounted) showMsg(context, 'تعذر فتح الكاميرا أو المعرض: $e', error: true);
+      return;
+    }
+    if (file == null) return;
+    final bytes = await file.readAsBytes();
+    final mime = file.name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+    setState(() {
+      _photo = file;
+      _photoMime = mime;
+      _aiBusy = true;
+    });
+    try {
+      final api = ref.read(sessionProvider).api!;
+      final info = await api.post<Map<String, dynamic>>('/ai/product-from-image', {
+        'image_base64': base64Encode(bytes),
+        'mime': mime,
+        'hint': _c['name']!.text.trim(),
+      });
+      if (!mounted) return;
+      void put(String key, dynamic value, {bool onlyIfEmpty = false}) {
+        final text = '${value ?? ''}'.trim();
+        if (text.isEmpty) return;
+        if (onlyIfEmpty && _c[key]!.text.trim().isNotEmpty) return;
+        _c[key]!.text = text;
+      }
+
+      setState(() {
+        put('name', info['name']);
+        put('brand', info['brand']);
+        put('model', info['model']);
+        put('barcode', info['barcode'], onlyIfEmpty: true);
+        put('warranty', info['warranty'], onlyIfEmpty: true);
+        put('details', info['details']);
+        final unit = '${info['unit'] ?? ''}'.trim();
+        if (unit.isNotEmpty) _unit = unit;
+        if (info['category_id'] != null) _categoryId = info['category_id'] as int;
+        final price = asNum(info['estimated_price']);
+        if (price > 0 && _c['sale_price']!.text.trim().isEmpty) {
+          _c['sale_price']!.text = _numText(price);
+          _priceLocked = true;
+        }
+      });
+      final cat = '${info['suggested_category'] ?? ''}';
+      showMsg(context, 'تمت تعبئة تفاصيل المنتج من الصورة — راجعها قبل الحفظ'
+          '${info['category_id'] == null && cat.isNotEmpty ? ' (القسم المقترح: $cat)' : ''}');
+    } on ApiException catch (e) {
+      if (mounted) showMsg(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => _aiBusy = false);
     }
   }
 
@@ -186,6 +284,40 @@ class _ProductEditScreenState extends ConsumerState<ProductEditScreen> {
           : ListView(
               padding: const EdgeInsets.fromLTRB(14, 10, 14, 30),
               children: [
+                SectionCard(
+                  title: 'البحث عن تفاصيل المنتج بالصورة',
+                  icon: Icons.auto_awesome_rounded,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (_photo != null) ...[
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.file(File(_photo!.path), height: 160, fit: BoxFit.cover),
+                        ),
+                        CheckboxListTile(
+                          contentPadding: EdgeInsets.zero,
+                          value: _attachPhoto,
+                          onChanged: (v) => setState(() => _attachPhoto = v ?? true),
+                          title: const Text('إضافة هذه الصورة لصور المنتج'),
+                        ),
+                      ],
+                      FilledButton.tonalIcon(
+                        onPressed: _aiBusy ? null : _fromImage,
+                        icon: _aiBusy
+                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.photo_camera_outlined),
+                        label: Text(_aiBusy ? 'جارِ التعرف على المنتج...' : 'صوّر المنتج واملأ التفاصيل تلقائياً'),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'يتعرف الذكاء الاصطناعي (Gemini) على المنتج من صورته ويعبّي الاسم والماركة والموديل والتفاصيل والكفالة.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
                 SectionCard(
                   title: 'المعلومات الأساسية',
                   icon: Icons.inventory_2_outlined,

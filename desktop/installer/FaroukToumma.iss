@@ -2,7 +2,7 @@
 #define AppName "مجموعة الطعمة التجارية"
 #define AppNameEn "Al-Toumma Trading Group"
 #ifndef AppVersion
-  #define AppVersion "1.2.0"
+  #define AppVersion "1.3.0"
 #endif
 
 [Setup]

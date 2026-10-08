@@ -546,6 +546,24 @@ def _load_opts():
             selectinload(Product.field_values), selectinload(Product.tier_prices))
 
 
+_AR_MAP = {"أ": "ا", "إ": "ا", "آ": "ا", "ٱ": "ا", "ة": "ه", "ى": "ي", "ؤ": "و", "ئ": "ي", "ـ": ""}
+
+
+def normalize_ar(text: str) -> str:
+    """توحيد كتابة الحروف العربية للبحث (أحمد = احمد، شاشة = شاشه)."""
+    text = (text or "").lower()
+    for a, b in _AR_MAP.items():
+        text = text.replace(a, b)
+    return text
+
+
+def _norm_sql(col):
+    expr = func.lower(func.coalesce(col, ""))
+    for a, b in _AR_MAP.items():
+        expr = func.replace(expr, a, b)
+    return expr
+
+
 def search_products(session: Session, query: str = "", category_id: int | None = None, brand: str | None = None,
                     supplier_id: int | None = None, active: bool | None = True, stock_filter: str = "all",
                     include_variants: bool = True, limit: int | None = 200, offset: int = 0,
@@ -554,9 +572,13 @@ def search_products(session: Session, query: str = "", category_id: int | None =
     stmt = select(Product).options(*_load_opts())
     q = (query or "").strip()
     if q:
-        like = f"%{q}%"
-        stmt = stmt.where(or_(Product.name.ilike(like), Product.code.ilike(like), Product.barcode.ilike(like),
-                              Product.brand.ilike(like), Product.model.ilike(like)))
+        # كل كلمة يجب أن تظهر في الاسم أو الكود أو الباركود أو الماركة أو الموديل (بغض النظر عن الترتيب
+        # وعن اختلاف كتابة الهمزات والتاء المربوطة والألف المقصورة)
+        cols = [_norm_sql(c) for c in (Product.name, Product.code, Product.barcode, Product.brand, Product.model,
+                                       Product.details)]
+        for token in normalize_ar(q).split():
+            like = f"%{token}%"
+            stmt = stmt.where(or_(*[c.like(like) for c in cols]))
     if category_id:
         stmt = stmt.where(Product.category_id.in_(descendant_ids(session, category_id)))
     if brand:
@@ -755,7 +777,8 @@ def warranty_label(warranty: str) -> str:
 
 
 def product_view(session: Session, p: Product, privileged: bool, tier_id: int | None = None,
-                 currency_code: str | None = None) -> dict[str, Any]:
+                 currency_code: str | None = None, show_stock: bool = False) -> dict[str, Any]:
+    """show_stock: إظهار الكمية المتبقية في المستودع (للبائع حتى يعرف كم قطعة باقية)."""
     """قاموس بالحقول المسموح رؤيتها فقط. الفلترة تتم هنا في السيرفر."""
     from ftapp.services import currency_service
 
@@ -790,7 +813,7 @@ def product_view(session: Session, p: Product, privileged: bool, tier_id: int | 
         data["promotion"] = {"name": promo.name, "percent": promo.percent} if promo else None
     add("cost_price", "سعر التكلفة", conv(p.cost_price) if privileged or vis.get("cost_price") else None, "money")
     add("margin", "نسبة الربح", effective_margin(session, p), "percent")
-    if show("quantity"):
+    if show("quantity") or show_stock:
         data["quantity"] = p.quantity
         data["stock_status"] = stock_status(session, p)
     add("min_stock", "حد التنبيه", min_stock_for(session, p), "number")
@@ -810,7 +833,7 @@ def product_view(session: Session, p: Product, privileged: bool, tier_id: int | 
                            "type": fld.field_type})
     if p.variants:
         data["variants"] = [{"id": v.id, "code": v.code, "name": v.name, "attrs": v.variant_attrs,
-                             **({"quantity": v.quantity} if show("quantity") else {})}
+                             **({"quantity": v.quantity} if show("quantity") or show_stock else {})}
                             for v in p.variants if v.is_active]
     data["fields"] = fields
     return data

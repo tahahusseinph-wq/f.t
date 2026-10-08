@@ -9,15 +9,16 @@ from PySide6.QtCore import QUrl, Qt
 from PySide6.QtGui import (QColor, QDesktopServices, QFont, QGuiApplication, QPageLayout, QTextCharFormat,
                            QTextDocumentWriter)
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter
-from PySide6.QtWidgets import (QColorDialog, QComboBox, QDialog, QFileDialog, QFontComboBox, QFrame, QHBoxLayout,
-                               QInputDialog, QLabel, QSpinBox, QTextEdit, QToolButton, QVBoxLayout)
+from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDialog, QFileDialog, QFontComboBox, QFrame,
+                               QHBoxLayout, QInputDialog, QLabel, QSpinBox, QTextEdit, QToolButton, QVBoxLayout)
 
 from ftapp.core.paths import sub_dir
 from ftapp.models import Invoice
-from ftapp.services import currency_service, pdf_service, settings_service
+from ftapp.services import currency_service, pdf_service, sales_service, settings_service
+from ftapp.services.errors import ServiceError
 from ftapp.ui.context import ctx
 from ftapp.ui.widgets.common import Toast, button, confirm, error
-from ftapp.ui.widgets.forms import FormDialog
+from ftapp.ui.widgets.forms import FormDialog, money_spin
 
 RECEIPTS = ("80mm", "58mm")
 
@@ -61,6 +62,59 @@ class InvoiceSizesDialog(FormDialog):
             settings_service.update(s, "invoice", margin_mm=self.margin.value(),
                                     **{k: sb.value() for k, sb in self.spins.items()})
         return True
+
+
+class PrintRateDialog(QDialog):
+    """قبل الطباعة: هل سعر صرف الدولار المعتمد في الفاتورة هو نفسه أم تريد تغييره؟"""
+
+    def __init__(self, parent, code: str, symbol: str, base_symbol: str, rate: float) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("سعر الصرف قبل الطباعة")
+        self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        self.rate = rate
+        lay = QVBoxLayout(self)
+        lay.setSpacing(10)
+        q = QLabel(f"سعر صرف {code} المعتمد في هذه الفاتورة:\n1 {symbol} = {rate:,.0f} {base_symbol}\n\n"
+                   "هل سعر الصرف هو نفسه أم تريد تغييره؟")
+        q.setStyleSheet("font-size: 12pt;")
+        q.setWordWrap(True)
+        lay.addWidget(q)
+        self.box = QFrame()
+        bl = QVBoxLayout(self.box)
+        bl.setContentsMargins(0, 0, 0, 0)
+        row = QHBoxLayout()
+        row.addWidget(QLabel(f"1 {symbol} ="))
+        self.spin = money_spin(10**9, 2)
+        self.spin.setValue(rate)
+        row.addWidget(self.spin, 1)
+        row.addWidget(QLabel(base_symbol))
+        bl.addLayout(row)
+        self.update_global = QCheckBox("تحديث سعر الصرف في الإعدادات أيضاً")
+        self.update_global.setChecked(True)
+        bl.addWidget(self.update_global)
+        self.box.hide()
+        lay.addWidget(self.box)
+        btns = QHBoxLayout()
+        self.same_btn = button("نعم، نفسه — اطبع", "check", "primary", on_click=self.accept)
+        self.change_btn = button("تغيير سعر الصرف", "edit", on_click=self._change)
+        btns.addWidget(self.same_btn)
+        btns.addWidget(self.change_btn)
+        btns.addStretch(1)
+        btns.addWidget(button("إلغاء", on_click=self.reject))
+        lay.addLayout(btns)
+
+    def _change(self) -> None:
+        if self.box.isHidden():
+            self.box.show()
+            self.same_btn.setText("حفظ السعر والطباعة")
+            self.change_btn.hide()
+            self.spin.setFocus()
+            self.spin.selectAll()
+
+    def accept(self) -> None:  # noqa: D102
+        if not self.box.isHidden():
+            self.rate = self.spin.value()
+        super().accept()
 
 
 def whatsapp_number(phone: str) -> str:
@@ -288,7 +342,34 @@ class InvoicePreviewDialog(QDialog):
         """نسخة من المعاينة (بتعديلاتها) للطباعة والحفظ، حتى لا يتغير تخطيط المعاينة."""
         return self.view.document().clone()
 
+    def _confirm_rate(self) -> bool:
+        """يسأل عن سعر الصرف قبل الطباعة؛ عند تغييره تُعاد بناء الفاتورة بالسعر الجديد."""
+        with ctx.session() as (s, _):
+            inv = s.get(Invoice, self.invoice_id)
+            base = currency_service.base(s)
+            ref = currency_service.reference(s)
+            if ref is None or inv.currency_code != base.code:
+                return True
+            rate = inv.ref_rate or currency_service.unit_value(ref)
+            info = (ref.code, ref.symbol, base.symbol)
+        dlg = PrintRateDialog(self, info[0], info[1], info[2], rate)
+        if not dlg.exec():
+            return False
+        if abs(dlg.rate - rate) > 1e-6:
+            if self._keep.isModified() and not confirm(self, "تغيير سعر الصرف يعيد بناء الفاتورة وستضيع تعديلاتك النصية. متابعة؟"):
+                return False
+            try:
+                with ctx.session() as (s, u):
+                    sales_service.set_invoice_ref_rate(s, u, self.invoice_id, dlg.rate, dlg.update_global.isChecked())
+            except ServiceError as exc:
+                error(self, str(exc))
+                return False
+            self._render()
+        return True
+
     def _print(self) -> None:
+        if not self._confirm_rate():
+            return
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         printer.setPageLayout(pdf_service.page_layout(self._paper_id, None, self._landscape, self.margin))
         if QPrintDialog(printer, self).exec():

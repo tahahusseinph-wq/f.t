@@ -44,6 +44,8 @@ class Invoice(Base, TimestampMixin):
     tier_id: Mapped[int | None] = mapped_column(ForeignKey("price_tiers.id", ondelete="SET NULL"), nullable=True)
     currency_code: Mapped[str] = mapped_column(String(8), default="USD")
     exchange_rate: Mapped[float] = mapped_column(Float, default=1.0)
+    # سعر صرف العملة المرجعية (الدولار) بالعملة الأساسية وقت الفاتورة/الطباعة — لسطر «ما يعادل»
+    ref_rate: Mapped[float] = mapped_column(Float, default=0.0)
     subtotal: Mapped[float] = mapped_column(Float, default=0.0)
     discount: Mapped[float] = mapped_column(Float, default=0.0)
     tax_rate: Mapped[float] = mapped_column(Float, default=0.0)
@@ -102,4 +104,6 @@ class CustomerPayment(Base):
     shift_id: Mapped[int | None] = mapped_column(ForeignKey("shifts.id", ondelete="SET NULL"), nullable=True)
     notes: Mapped[str] = mapped_column(String(256), default="")
     method: Mapped[str] = mapped_column(String(16), default="cash", server_default="cash")  # cash, shamcash
+    currency_code: Mapped[str] = mapped_column(String(8), default="", server_default="")  # عملة الدفع النقدي
+    currency_amount: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)

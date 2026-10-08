@@ -64,24 +64,35 @@ class HomeShell extends ConsumerStatefulWidget {
   ConsumerState<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends ConsumerState<HomeShell> {
+class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserver {
   int unread = 0;
   final Map<String, String> _lastInSection = {};
   late final AlertsWatcher alerts;
+  late final Session _session;
 
   @override
   void initState() {
     super.initState();
     final session = ref.read(sessionProvider);
+    _session = session;
     alerts = AlertsWatcher(session)..onUnread = (n) => mounted ? setState(() => unread = n) : null;
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(syncProvider).start();
       alerts.start();
+      session.startLiveRefresh();
     });
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _session.refreshMe();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _session.stopLiveRefresh();
     alerts.stop();
     super.dispose();
   }

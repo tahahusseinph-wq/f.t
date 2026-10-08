@@ -17,8 +17,9 @@ KNOWN_CURRENCIES = {
 }
 
 
-def seed_defaults(session: Session, base_currency: str = "USD", secondary: str | None = "SYP",
+def seed_defaults(session: Session, base_currency: str = "SYP", secondary: str | None = "USD",
                   secondary_rate: float = 0.0) -> None:
+    """secondary_rate: قيمة 1 من العملة الثانية بالعملة الأساسية (مثال: 1 دولار = 13000 ل.س)."""
     if session.scalar(select(Warehouse).limit(1)) is None:
         session.add(Warehouse(name="المستودع الرئيسي", is_default=True))
 
@@ -30,7 +31,7 @@ def seed_defaults(session: Session, base_currency: str = "USD", secondary: str |
         ])
 
     if session.scalar(select(ExpenseCategory).limit(1)) is None:
-        for name in ("إيجار", "كهرباء", "رواتب", "نقل وشحن", "صيانة", "ضيافة", "متفرقات"):
+        for name in ("إيجار", "كهرباء", "رواتب", "سلف الموظفين", "نقل وشحن", "صيانة", "ضيافة", "متفرقات"):
             session.add(ExpenseCategory(name=name))
 
     if session.get(Currency, base_currency) is None:
@@ -38,8 +39,12 @@ def seed_defaults(session: Session, base_currency: str = "USD", secondary: str |
         session.add(Currency(code=base_currency, name=name, symbol=symbol, rate=1.0, is_base=True, decimals=dec))
     if secondary and secondary != base_currency and session.get(Currency, secondary) is None:
         name, symbol, dec = KNOWN_CURRENCIES.get(secondary, (secondary, secondary, 2))
-        session.add(Currency(code=secondary, name=name, symbol=symbol, rate=secondary_rate or 1.0,
+        session.add(Currency(code=secondary, name=name, symbol=symbol,
+                             rate=1.0 / secondary_rate if secondary_rate and secondary_rate > 0 else 1.0,
                              is_base=False, decimals=dec))
     settings.set(session, "base_currency", base_currency)
     settings.set(session, "display_currency", base_currency)
+    settings.set(session, "main_base_done", True)
     session.flush()
+    from ftapp.services import currency_service
+    currency_service.ensure_standard(session)

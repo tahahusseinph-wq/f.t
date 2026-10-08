@@ -7,7 +7,7 @@ from PySide6.QtCore import QUrl, Qt
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
                                QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-                               QPlainTextEdit, QScrollArea, QSpinBox, QVBoxLayout, QWidget)
+                               QPlainTextEdit, QScrollArea, QSpinBox, QTabWidget, QVBoxLayout, QWidget)
 
 from ftapp import VERSION
 from ftapp.core.paths import data_dir, sub_dir
@@ -49,7 +49,8 @@ class SettingsPage(Page):
 
     def __init__(self) -> None:
         super().__init__()
-        self.actions.addWidget(button("حفظ الإعدادات", "check", "primary", on_click=self._save))
+        self.save_btn = button("حفظ الإعدادات", "check", "primary", on_click=self._save)
+        self.actions.addWidget(self.save_btn)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         body = QWidget()
@@ -66,7 +67,22 @@ class SettingsPage(Page):
         self._updates_security()
         self.col.addStretch(1)
         scroll.setWidget(body)
-        self.root.addWidget(scroll, 1)
+        from ftapp.ui.pages.rates_tab import RatesTab
+        self.tabs = QTabWidget()
+        self.tabs.addTab(scroll, icons.icon("settings"), "الإعدادات العامة")
+        self.rates = RatesTab()
+        self.tabs.addTab(self.rates, icons.icon("money"), "أسعار الصرف")
+        self.tabs.currentChanged.connect(self._tab_changed)
+        self.root.addWidget(self.tabs, 1)
+
+    def _tab_changed(self, index: int) -> None:
+        self.save_btn.setVisible(index == 0)
+        if index == 1:
+            self.rates.refresh()
+
+    def open_item(self, payload) -> None:
+        if payload == "rates" or (isinstance(payload, dict) and payload.get("tab") == "rates"):
+            self.tabs.setCurrentIndex(1)
 
     # ---------------- البناء ----------------
     def _company(self) -> None:
@@ -77,7 +93,6 @@ class SettingsPage(Page):
         self.c_address = QLineEdit()
         self.c_phone = QLineEdit()
         self.c_email = QLineEdit()
-        self.c_tax = QLineEdit()
         self.c_footer = QLineEdit()
         self.c_details = QPlainTextEdit()
         self.c_details.setPlaceholderText("مثال: سجل تجاري رقم ...\nواتساب: 09xxxxxxxx\nأوقات الدوام: 9 صباحاً - 9 مساءً")
@@ -86,18 +101,17 @@ class SettingsPage(Page):
         self.c_facebook.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
         self.c_facebook.setPlaceholderText("https://www.facebook.com/YourPage  أو اسم الصفحة فقط")
         self.c_shamcash = QLineEdit()
-        self.c_shamcash.setPlaceholderText("رقم أو اسم حساب شام كاش لاستلام الدفعات")
+        self.c_shamcash.setPlaceholderText("الصق رمز حساب شام كاش — يُطبع على الفاتورة كرمز QR يمسحه الزبون للدفع")
         self.logo = logo_label(56)
         f.addRow("الاسم", self.c_name)
         f.addRow("الاسم بالإنكليزية", self.c_name_en)
         f.addRow("العنوان", self.c_address)
         f.addRow("الهاتف", self.c_phone)
         f.addRow("البريد", self.c_email)
-        f.addRow("الرقم الضريبي", self.c_tax)
         f.addRow("عبارة أسفل الفاتورة", self.c_footer)
         f.addRow("تفاصيل إضافية على الفاتورة", self.c_details)
         f.addRow("صفحة الفيسبوك (QR)", self.c_facebook)
-        f.addRow("حساب شام كاش", self.c_shamcash)
+        f.addRow("رمز حساب شام كاش (QR)", self.c_shamcash)
         f.addRow("الشعار", _hrow(self.logo, button("تغيير", "image", on_click=self._logo),
                                  button("الشعار الأصلي", on_click=self._logo_reset), "stretch"))
         self.col.addWidget(card)
@@ -201,9 +215,6 @@ class SettingsPage(Page):
         self.g_slow = int_spin(1, 3650)
         self.g_expiry = int_spin(1, 3650)
         self.g_large = money_spin()
-        self.g_tax = QDoubleSpinBox()
-        self.g_tax.setRange(0, 100)
-        self.g_tax.setSuffix(" %")
         self.g_negative = QCheckBox("السماح بالبيع حتى لو الكمية غير كافية (غير منصوح)")
         self.g_sep = QComboBox()
         for s_ in ("-", "_", ".", ""):
@@ -213,7 +224,6 @@ class SettingsPage(Page):
         f.addRow("البضاعة راكدة بعد (يوم)", self.g_slow)
         f.addRow("تنبيه الصلاحية قبل (يوم)", self.g_expiry)
         f.addRow("تنبيه الفاتورة الكبيرة من", self.g_large)
-        f.addRow("نسبة الضريبة", self.g_tax)
         f.addRow("", self.g_negative)
         f.addRow("فاصل أجزاء الكود", self.g_sep)
         f.addRow("خانات الرقم التسلسلي", self.g_digits)
@@ -263,7 +273,7 @@ class SettingsPage(Page):
         self.ai_key.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
         self.ai_model = QComboBox()
         self.ai_model.setEditable(True)
-        for m in ("gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite", "gemini-2.0-flash"):
+        for m in ("gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-flash"):
             self.ai_model.addItem(m)
         self.ai_status = muted("")
         f.addRow("", self.ai_enabled)
@@ -324,7 +334,6 @@ class SettingsPage(Page):
             self.c_address.setText(c.get("address", ""))
             self.c_phone.setText(c.get("phone", ""))
             self.c_email.setText(c.get("email", ""))
-            self.c_tax.setText(c.get("tax_number", ""))
             self.c_footer.setText(c.get("invoice_footer", ""))
             self.c_details.setPlainText(c.get("invoice_details", ""))
             self.c_facebook.setText(c.get("facebook_url", ""))
@@ -344,7 +353,6 @@ class SettingsPage(Page):
             self.g_slow.setValue(int(g("slow_moving_days")))
             self.g_expiry.setValue(int(g("expiry_warning_days")))
             self.g_large.setValue(float(g("large_invoice_amount") or 0))
-            self.g_tax.setValue(float(g("tax_rate") or 0))
             self.g_negative.setChecked(bool(g("allow_negative_stock")))
             cf = g("code_format")
             self.g_sep.setCurrentIndex(max(0, self.g_sep.findData(cf.get("separator", "-"))))
@@ -374,6 +382,8 @@ class SettingsPage(Page):
         self.ai_key.setText(secrets_service.gemini_key() or "")
         self.b_password.setText(secrets_service.backup_password() or "")
         self._load_backups()
+        if self.tabs.currentIndex() == 1:
+            self.rates.refresh()
 
     def _load_backups(self) -> None:
         self.b_list.clear()
@@ -391,7 +401,7 @@ class SettingsPage(Page):
             upd = lambda k, **kw: settings_service.update(s, k, **kw)  # noqa: E731
             upd("company", name=self.c_name.text().strip(), name_en=self.c_name_en.text().strip(),
                 address=self.c_address.text(), phone=self.c_phone.text(), email=self.c_email.text(),
-                tax_number=self.c_tax.text(), invoice_footer=self.c_footer.text(),
+                invoice_footer=self.c_footer.text(),
                 invoice_details=self.c_details.toPlainText().strip(), facebook_url=self.c_facebook.text().strip(),
                 shamcash_account=self.c_shamcash.text().strip())
             upd("invoice", sale_title=self.i_sale.text().strip() or "فاتورة مبيعات",
@@ -403,7 +413,6 @@ class SettingsPage(Page):
             settings_service.set(s, "slow_moving_days", self.g_slow.value())
             settings_service.set(s, "expiry_warning_days", self.g_expiry.value())
             settings_service.set(s, "large_invoice_amount", self.g_large.value())
-            settings_service.set(s, "tax_rate", self.g_tax.value())
             settings_service.set(s, "allow_negative_stock", self.g_negative.isChecked())
             upd("code_format", separator=self.g_sep.currentData(), serial_digits=self.g_digits.value())
             upd("printing", paper=self.p_paper.currentData(), show_logo=self.p_logo.isChecked())

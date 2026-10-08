@@ -28,7 +28,6 @@
   {% if company.address %}<tr><td align="center" class="sub">{{ company.address }}</td></tr>{% endif %}
   {% if company.phone %}<tr><td align="center" class="sub">هاتف: {{ company.phone }}</td></tr>{% endif %}
   {% if company.email %}<tr><td align="center" class="sub">{{ company.email }}</td></tr>{% endif %}
-  {% if company.tax_number %}<tr><td align="center" class="sub">الرقم الضريبي: {{ company.tax_number }}</td></tr>{% endif %}
   {% for ln in details %}<tr><td align="center" class="sub">{{ ln }}</td></tr>{% endfor %}
   <tr><td align="center"><b>{{ doc_title }}</b></td></tr>
 </table>
@@ -71,7 +70,6 @@
           {% if company.name_en %}<br><span class="name-en">{{ company.name_en }}</span>{% endif %}
           {% if company.address %}<br><span class="sub">{{ company.address }}</span>{% endif %}
           {% if company.phone or company.email %}<br><span class="sub">{% if company.phone %}هاتف: {{ company.phone }}{% endif %}{% if company.phone and company.email %} • {% endif %}{{ company.email }}</span>{% endif %}
-          {% if company.tax_number %}<br><span class="sub">الرقم الضريبي: {{ company.tax_number }}</span>{% endif %}
           {% for ln in details %}<br><span class="sub">{{ ln }}</span>{% endfor %}
         </td>
         {% if show_logo %}<td width="12"></td><td valign="middle"><img src="logo" width="{{ logo_w }}" height="{{ logo_h }}"></td>{% endif %}
@@ -127,7 +125,6 @@
 <table width="100%" cellspacing="0" cellpadding="{{ 3 if boxed else 1 }}"{% if boxed %} border="1" style="border-collapse: collapse; border-color: {{ style.accent_line }}; border-style: solid;"{% endif %}>
   <tr><td align="left">{{ totals.subtotal }}</td><td align="right">المجموع</td></tr>
   {% if inv.discount %}<tr><td align="left">{{ totals.discount }}</td><td align="right">الخصم</td></tr>{% endif %}
-  {% if inv.tax_amount %}<tr><td align="left">{{ totals.tax }}</td><td align="right">الضريبة ({{ inv.tax_rate }}%)</td></tr>{% endif %}
   {% set g = 'grand' if boxed else 'grand-t' %}
   <tr><td align="left" class="{{ g }}">{{ totals.total }}</td><td align="right" class="{{ g }}">الإجمالي</td></tr>
   {% if inv.kind == 'sale' %}
@@ -135,6 +132,7 @@
   {% if inv.remaining > 0 %}<tr><td align="left" class="danger">{{ totals.remaining }}</td><td align="right" class="danger">المتبقي (دين)</td></tr>{% endif %}
   {% endif %}
   {% if alt_total %}<tr><td align="left" class="muted">{{ alt_total }}</td><td align="right" class="muted">ما يعادل</td></tr>{% endif %}
+  {% if rate_note %}<tr><td align="left" class="muted">{{ rate_note }}</td><td align="right" class="muted">سعر الصرف</td></tr>{% endif %}
 </table>
 {% endmacro %}
 {% if thermal %}
@@ -143,6 +141,8 @@
 {% if shamcash %}<p class="sub" align="center">الدفع عبر شام كاش: <b>{{ shamcash }}</b></p>{% endif %}
 {% for ln in payment_info %}<p class="sub" align="center">{{ ln }}</p>{% endfor %}
 <table width="100%" cellspacing="0" cellpadding="4">
+  {% if shamcash %}<tr><td align="center"><img src="sham" width="{{ qr_size }}" height="{{ qr_size }}"><br>
+      <span class="sub">امسح للدفع عبر شام كاش</span></td></tr>{% endif %}
   {% if style.show_qr %}<tr><td align="center"><img src="qr" width="{{ qr_size }}" height="{{ qr_size }}"></td></tr>{% endif %}
   {% if facebook %}<tr><td align="center"><img src="fb" width="{{ qr_size }}" height="{{ qr_size }}"><br>
       <span class="sub">تابعونا على فيسبوك</span></td></tr>{% endif %}
@@ -183,6 +183,8 @@
         <tr><td align="center"><img src="spacer" width="1" height="{{ stamp_h }}"></td></tr>
       </table>
     </td><td width="2%"></td>{% endif %}
+    {% if shamcash %}<td align="center" valign="middle" width="15%"><img src="sham" width="{{ qr_size }}" height="{{ qr_size }}"><br>
+        <span class="muted">الدفع عبر شام كاش</span></td>{% endif %}
     {% if facebook %}<td align="center" valign="middle" width="15%"><img src="fb" width="{{ qr_size }}" height="{{ qr_size }}"><br>
         <span class="muted">تابعونا على فيسبوك</span></td>{% endif %}
     {% if style.show_qr %}<td align="center" valign="middle" width="15%"><img src="qr" width="{{ qr_size }}" height="{{ qr_size }}"><br>

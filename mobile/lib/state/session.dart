@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
@@ -181,6 +183,47 @@ class Session extends ChangeNotifier {
   }
 
   void refresh() => notifyListeners();
+
+  // ---------------- تحديث الصلاحيات مباشرة ----------------
+  Timer? _liveTimer;
+
+  /// يعيد قراءة المستخدم وصلاحياته من الكمبيوتر دورياً، فأي تعديل من الأدمن يتفعّل فوراً بدون تسجيل دخول.
+  void startLiveRefresh() {
+    _liveTimer?.cancel();
+    _liveTimer = Timer.periodic(const Duration(seconds: 15), (_) => refreshMe());
+  }
+
+  void stopLiveRefresh() {
+    _liveTimer?.cancel();
+    _liveTimer = null;
+  }
+
+  bool _refreshing = false;
+
+  Future<void> refreshMe() async {
+    if (_refreshing || api?.token == null || user == null) return;
+    _refreshing = true;
+    try {
+      final me = await api!.get<Map<String, dynamic>>('/auth/me');
+      final changed = '${me['permissions']}' != '${user?['permissions']}' ||
+          me['role'] != user?['role'] ||
+          me['full_name'] != user?['full_name'];
+      user = me;
+      await AppStorage.setUser(me);
+      if (!online) online = true;
+      if (changed) {
+        await loadMeta();
+        notifyListeners();
+      }
+    } on ApiException catch (e) {
+      if (e.unauthorized) {
+        await _clearLogin();
+        notifyListeners();
+      }
+    } finally {
+      _refreshing = false;
+    }
+  }
 }
 
 final sessionProvider = ChangeNotifierProvider<Session>((ref) => Session());

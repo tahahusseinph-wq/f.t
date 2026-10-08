@@ -54,8 +54,8 @@ DEFAULTS: dict[str, Any] = {
         "facebook_url": "",      # صفحة الفيسبوك: تُطبع كرمز QR على الفاتورة
         "shamcash_account": "",  # رقم/اسم حساب شام كاش لاستلام الدفعات
     },
-    "base_currency": "USD",
-    "display_currency": "USD",
+    "base_currency": "SYP",
+    "display_currency": "SYP",
     "default_min_stock": 5,
     "slow_moving_days": 60,
     "expiry_warning_days": 30,
@@ -66,7 +66,7 @@ DEFAULTS: dict[str, Any] = {
     "server": {"enabled": True, "port": 8765, "lan_only": True},
     "server_id": "",
     "jwt_secret": "",
-    "gemini": {"model": "gemini-2.5-flash", "enabled": True},
+    "gemini": {"model": "gemini-3.8-flash", "enabled": True},
     "backup": {"auto": True, "keep": 14, "encrypt": False, "cloud_folder": "", "last": ""},
     "ui": {"language": "ar", "theme": "light", "idle_lock_minutes": 15},
     "printing": {"paper": "A4", "show_logo": True, "copies": 1, "printer": ""},

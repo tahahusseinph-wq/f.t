@@ -52,8 +52,12 @@ class OfflineDb {
 
   static Future<List<Map<String, dynamic>>> search(String q, {int limit = 50}) async {
     final d = await db;
-    final like = '%${q.trim()}%';
-    final rows = await d.query('products', where: 'name LIKE ? OR code LIKE ? OR barcode LIKE ?', whereArgs: [like, like.toUpperCase(), like], limit: limit, orderBy: 'name');
+    // كل كلمة يجب أن تظهر في الاسم أو الكود أو الباركود (بأي ترتيب)
+    final words = q.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    if (words.isEmpty) return [];
+    final where = words.map((_) => '(name LIKE ? OR code LIKE ? OR barcode LIKE ?)').join(' AND ');
+    final args = [for (final w in words) ...['%$w%', '%${w.toUpperCase()}%', '%$w%']];
+    final rows = await d.query('products', where: where, whereArgs: args, limit: limit, orderBy: 'name');
     return rows.map((r) => jsonDecode(r['data'] as String) as Map<String, dynamic>).toList();
   }
 
