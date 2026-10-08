@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -30,15 +29,21 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
   Map<String, dynamic>? _result;
 
   Future<void> _pick() async {
-    final picked = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['xlsx', 'xlsm']);
-    final file = picked?.files.single;
-    if (file == null || file.path == null) return;
+    final List<PlatformFile> picked;
+    try {
+      picked = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['xlsx', 'xlsm']);
+    } catch (e) {
+      if (mounted) showMsg(context, 'تعذر فتح الملفات: $e', error: true);
+      return;
+    }
+    if (picked.isEmpty) return;
+    final file = picked.first;
     setState(() {
       _busy = true;
       _result = null;
     });
     try {
-      final bytes = await File(file.path!).readAsBytes();
+      final bytes = await file.readAsBytes();
       final res = await ref.read(sessionProvider).api!.post<Map<String, dynamic>>('/products/import/preview', {
         'file_base64': base64Encode(bytes),
         'filename': file.name,
