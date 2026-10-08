@@ -141,9 +141,17 @@ jobs:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
-      - run: mv FaroukToumma-setup/FaroukToumma-Setup.exe . && mv FaroukToumma-android/app-release.apk FaroukToumma.apk
+      # الـ APK يُرفق فقط إذا كان موقّعاً بالمفتاح الثابت، وإلا لن يُثبَّت كتحديث على الموبايلات
+      - run: |
+          mv FaroukToumma-setup/FaroukToumma-Setup.exe .
+          if [ "${{ needs.mobile.outputs.signed }}" = "true" ]; then
+            mv FaroukToumma-android/app-release.apk FaroukToumma.apk
+          else
+            echo "::warning::ملف APK غير موقّع بالمفتاح الثابت، لن يُرفق بالإصدار (أضف أسرار مفتاح التوقيع أو ارفعه يدوياً)"
+          fi
       - uses: softprops/action-gh-release@v2
         with:
+          fail_on_unmatched_files: false
           files: |
             FaroukToumma-Setup.exe
             FaroukToumma.apk
