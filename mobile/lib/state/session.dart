@@ -27,7 +27,11 @@ class Session extends ChangeNotifier {
   String get roleLabel => '${user?['role_label'] ?? ''}';
   bool get isAdmin => user?['role'] == 'admin' || user?['role'] == 'manager';
 
-  bool can(String perm) => (user?['permissions'] as List?)?.contains(perm) ?? false;
+  bool get isOwner => user?['role'] == 'admin';
+
+  /// الأدمن يملك كل الصلاحيات دائماً (ما عدا «البيع بأكثر من المتوفر» التي تُفعَّل يدوياً).
+  bool can(String perm) =>
+      (isOwner && perm != 'sales.oversell') || ((user?['permissions'] as List?)?.contains(perm) ?? false);
 
   String? get currency => AppStorage.currency ?? meta['display_currency'] as String?;
 

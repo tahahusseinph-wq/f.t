@@ -10,6 +10,7 @@ import '../core/storage.dart';
 import '../state/session.dart';
 import '../state/sync.dart';
 import '../widgets/common.dart';
+import 'product_edit_screen.dart';
 import 'product_screen.dart';
 import 'scanner_screen.dart';
 
@@ -80,12 +81,25 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     }
   }
 
+  Future<void> _newProduct() async {
+    final res = await Navigator.push<Map<String, dynamic>>(context, MaterialPageRoute(builder: (_) => const ProductEditScreen()));
+    if (res != null && res['code'] != null && mounted) {
+      _ctl.text = '${res['code']}';
+      await _open('${res['code']}');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(sessionProvider);
     final scheme = Theme.of(context).colorScheme;
     final recent = AppStorage.recentSearches;
     return ListView(padding: const EdgeInsets.all(16), children: [
+      if (session.can('products.edit'))
+        Align(
+          alignment: AlignmentDirectional.centerEnd,
+          child: FilledButton.tonalIcon(onPressed: _newProduct, icon: const Icon(Icons.add), label: const Text('منتج جديد')),
+        ),
       Text('أهلاً ${session.displayName} 👋', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
       Text('ابحث عن أي منتج بالكود أو امسح الباركود', style: TextStyle(color: scheme.outline)),
       const SizedBox(height: 16),

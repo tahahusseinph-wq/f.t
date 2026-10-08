@@ -126,7 +126,7 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
         child: const Text('إلغاء ربط الجهاز', style: TextStyle(color: Brand.danger)),
       ),
       const SizedBox(height: 8),
-      Center(child: Text('مجموعة الطعمة التجارية • الإصدار 1.1.0', style: TextStyle(color: Theme.of(context).colorScheme.outline, fontSize: 12))),
+      Center(child: Text('مجموعة الطعمة التجارية • الإصدار 1.2.0', style: TextStyle(color: Theme.of(context).colorScheme.outline, fontSize: 12))),
     ]);
   }
 }

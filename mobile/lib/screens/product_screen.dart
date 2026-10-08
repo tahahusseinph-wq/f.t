@@ -8,6 +8,7 @@ import '../state/cart.dart';
 import '../state/session.dart';
 import '../state/sync.dart';
 import '../widgets/common.dart';
+import 'product_edit_screen.dart';
 
 /// تفاصيل المنتج: يعرض فقط ما سمح به السيرفر حسب صلاحيات المستخدم.
 class ProductScreen extends ConsumerStatefulWidget {
@@ -31,6 +32,19 @@ class _ProductScreenState extends ConsumerState<ProductScreen> {
       });
       if (mounted) setState(() => p = fresh);
     } on ApiException catch (_) {}
+  }
+
+  Future<void> _edit() async {
+    final res = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(builder: (_) => ProductEditScreen(productId: p['id'] as int)),
+    );
+    if (res == null || !mounted) return;
+    if (res['deleted'] == true) {
+      Navigator.pop(context);
+      return;
+    }
+    await _reload();
   }
 
   Future<void> _adjustStock() async {
@@ -82,7 +96,13 @@ class _ProductScreenState extends ConsumerState<ProductScreen> {
     final variants = (p['variants'] as List?)?.cast<Map>() ?? [];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('تفاصيل المنتج')),
+      appBar: AppBar(
+        title: const Text('تفاصيل المنتج'),
+        actions: [
+          if (session.can('products.edit') && !widget.offline)
+            IconButton(tooltip: 'تعديل المنتج', icon: const Icon(Icons.edit_outlined), onPressed: _edit),
+        ],
+      ),
       body: RefreshIndicator(
         onRefresh: _reload,
         child: ListView(padding: const EdgeInsets.all(16), children: [
@@ -179,6 +199,10 @@ class _ProductScreenState extends ConsumerState<ProductScreen> {
           if (session.can('inventory.adjust')) ...[
             const SizedBox(height: 8),
             OutlinedButton.icon(onPressed: _adjustStock, icon: const Icon(Icons.edit_note), label: const Text('تعديل الكمية')),
+          ],
+          if (session.can('products.edit') && !widget.offline) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(onPressed: _edit, icon: const Icon(Icons.edit_outlined), label: const Text('تعديل بيانات المنتج والأسعار')),
           ],
         ]),
       ),

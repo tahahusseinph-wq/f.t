@@ -7,12 +7,12 @@ from PySide6.QtCore import QUrl, Qt
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
                                QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-                               QPlainTextEdit, QScrollArea, QVBoxLayout, QWidget)
+                               QPlainTextEdit, QScrollArea, QSpinBox, QVBoxLayout, QWidget)
 
 from ftapp import VERSION
 from ftapp.core.paths import data_dir, sub_dir
-from ftapp.services import (audit, auth_service, backup_service, gemini_service, secrets_service, settings_service,
-                            update_service)
+from ftapp.services import (audit, auth_service, backup_service, gemini_service, pdf_service, secrets_service,
+                            settings_service, update_service)
 from ftapp.ui import icons, theme
 from ftapp.ui.context import ctx
 from ftapp.ui.dialogs.auth_dialogs import password_field
@@ -134,10 +134,41 @@ class SettingsPage(Page):
         f.addRow("الشروط والأحكام", self.i_terms)
         f.addRow("معلومات الدفع", self.i_payment)
         f.addRow("يظهر على الفاتورة", checks)
+        # ---- قياسات الفاتورة (تُحفظ وتُطبق على كل الفواتير) ----
+        sizes = QWidget()
+        sg = QGridLayout(sizes)
+        sg.setContentsMargins(0, 0, 0, 0)
+        sg.setHorizontalSpacing(10)
+        self.i_sizes: dict[str, QSpinBox] = {}
+        for i, (key, label, default, lo, hi) in enumerate(pdf_service.INVOICE_SIZES):
+            sb = QSpinBox()
+            sb.setRange(lo, hi)
+            sb.setSingleStep(5)
+            sb.setSuffix(" %")
+            sb.setValue(default)
+            self.i_sizes[key] = sb
+            sg.addWidget(QLabel(label), i // 2, (i % 2) * 2)
+            sg.addWidget(sb, i // 2, (i % 2) * 2 + 1)
+        self.i_margin = QSpinBox()
+        self.i_margin.setRange(*pdf_service.MARGIN_RANGE)
+        self.i_margin.setSuffix(" مم")
+        n = len(pdf_service.INVOICE_SIZES)
+        sg.addWidget(QLabel("هوامش الورقة"), n // 2, (n % 2) * 2)
+        sg.addWidget(self.i_margin, n // 2, (n % 2) * 2 + 1)
+        sg.setColumnStretch(4, 1)
+        f.addRow("قياسات الفاتورة", sizes)
+        f.addRow("", _hrow(button("القياسات الافتراضية", on_click=self._default_sizes),
+                           muted("100% = الحجم الأساسي. كبّر «اسم المنشأة» لتكبير الاسم على الفاتورة.", wrap=False),
+                           "stretch"))
         f.addRow("", _hrow(button("معاينة آخر فاتورة بالتصميم الحالي", "receipt", "soft", on_click=self._preview_invoice),
                            "stretch"))
         card.add(muted("الشعار وبيانات المنشأة تُعدّل من البطاقة السابقة. احفظ الإعدادات ثم اضغط «معاينة» لرؤية النتيجة."))
         self.col.addWidget(card)
+
+    def _default_sizes(self) -> None:
+        for key, _label, default, _lo, _hi in pdf_service.INVOICE_SIZES:
+            self.i_sizes[key].setValue(default)
+        self.i_margin.setValue(12)
 
     def _set_color(self, color: str) -> None:
         self.i_color = color
@@ -306,6 +337,9 @@ class SettingsPage(Page):
             self.i_payment.setPlainText(iv.get("payment_info", ""))
             for k, cb in self.i_checks.items():
                 cb.setChecked(bool(iv.get(k, True)))
+            for k, sb in self.i_sizes.items():
+                sb.setValue(int(round(pdf_service.size_factor(iv, k) * 100)))
+            self.i_margin.setValue(int(pdf_service.invoice_margin(iv)))
             self.g_min.setValue(float(g("default_min_stock") or 0))
             self.g_slow.setValue(int(g("slow_moving_days")))
             self.g_expiry.setValue(int(g("expiry_warning_days")))
@@ -363,6 +397,7 @@ class SettingsPage(Page):
             upd("invoice", sale_title=self.i_sale.text().strip() or "فاتورة مبيعات",
                 quotation_title=self.i_quote.text().strip() or "عرض سعر", accent_color=self.i_color,
                 terms=self.i_terms.toPlainText().strip(), payment_info=self.i_payment.toPlainText().strip(),
+                margin_mm=self.i_margin.value(), **{k: sb.value() for k, sb in self.i_sizes.items()},
                 **{k: cb.isChecked() for k, cb in self.i_checks.items()})
             settings_service.set(s, "default_min_stock", self.g_min.value())
             settings_service.set(s, "slow_moving_days", self.g_slow.value())

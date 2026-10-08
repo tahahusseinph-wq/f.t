@@ -153,3 +153,46 @@ def test_company_settings_and_rate_from_mobile(client, db, admin, product_factor
     assert client.get("/api/v1/settings/company", headers=hs).status_code == 200
     assert client.put("/api/v1/settings/company", headers=hs, json={"phone": "1"}).status_code == 403
     assert client.put(f"/api/v1/currencies/{syp['code']}/rate", headers=hs, json={"rate": 1}).status_code == 403
+
+
+def test_admin_full_edit_from_mobile(client, db, admin, product_factory):
+    """الأدمن يعدّل كل شيء من الموبايل: المنتجات، المستخدمين وصلاحياتهم، وقياسات الفاتورة."""
+    h = login(client)
+    p = product_factory("سماعة", cost=10, margin=50)
+    raw = client.get(f"/api/v1/products/{p.id}/edit", headers=h).json()
+    assert raw["cost_price"] == 10 and raw["name"] == "سماعة"
+    body = {**{k: raw[k] for k in ("name", "code", "barcode", "category_id", "brand", "model", "unit", "cost_price",
+                                    "margin", "min_stock", "location", "details", "notes", "warranty")},
+            "name": "سماعة بلوتوث", "sale_price": 33, "price_locked": True}
+    r = client.put(f"/api/v1/products/{p.id}", json=body, headers=h)
+    assert r.status_code == 200, r.text
+    assert client.get(f"/api/v1/products/{p.id}/edit", headers=h).json()["sale_price"] == 33
+
+    perms = client.get("/api/v1/permissions", headers=h).json()
+    assert "sales.create" in perms["permissions"] and "admin" in perms["defaults"]
+    u = client.post("/api/v1/users", headers=h, json={"username": "seller1", "password": "Seller1234",
+                                                      "role": "seller", "full_name": "بائع"}).json()
+    r = client.patch(f"/api/v1/users/{u['id']}", headers=h,
+                     json={"permissions": {"reports.view": True}, "commission_rate": 5, "phone": "0944"})
+    assert r.status_code == 200, r.text
+    assert "reports.view" in r.json()["permissions"] and r.json()["commission_rate"] == 5
+    assert client.delete(f"/api/v1/users/{u['id']}", headers=h).json()["ok"] is True
+
+    iv = client.get("/api/v1/settings/invoice", headers=h).json()
+    assert any(s["key"] == "size_name" for s in iv["sizes"])
+    iv = client.put("/api/v1/settings/invoice", headers=h, json={"size_name": 200, "margin_mm": 8}).json()
+    assert next(s["value"] for s in iv["sizes"] if s["key"] == "size_name") == 200 and iv["margin_mm"] == 8
+    assert client.delete(f"/api/v1/products/{p.id}", headers=h).json()["result"] in ("deleted", "deactivated")
+
+
+def test_invoice_sizes_change_render(db, admin, product_factory):
+    from ftapp.services import pdf_service, sales_service, settings_service
+
+    p = product_factory("كبل", cost=5, margin=20)
+    inv = sales_service.create_sale(db, admin, sales_service.SaleRequest([sales_service.CartLine(p.id, 1)]))
+    db.commit()
+    ctx1 = pdf_service.invoice_context(db, inv, "A4")
+    settings_service.update(db, "invoice", size_name=200, size_logo=50)
+    ctx2 = pdf_service.invoice_context(db, inv, "A4")
+    assert ctx2["name_fs"] > ctx1["name_fs"] and ctx2["logo_h"] < ctx1["logo_h"]
+    assert pdf_service.invoice_pdf(db, inv, paper="A4").exists()

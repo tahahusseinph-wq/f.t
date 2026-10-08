@@ -32,6 +32,38 @@ _LOGO_HEIGHTS = {"A3": 135, "A4": 110, "Letter": 110, "Legal": 110, "A5": 88, "A
 _STAMP_HEIGHTS = {"A3": 120, "A4": 92, "Letter": 92, "Legal": 92, "A5": 70, "A6": 52}  # مساحة الختم والتوقيع
 _logo_cache: dict[tuple, QImage] = {}
 
+# قياسات الفاتورة القابلة للتعديل: (المفتاح، الاسم الظاهر، الافتراضي، الأدنى، الأعلى)
+INVOICE_SIZES = (
+    ("size_name", "اسم المنشأة", 140, 60, 400),
+    ("size_name_en", "الاسم بالإنكليزية", 110, 60, 300),
+    ("size_text", "نص الفاتورة والجدول", 100, 60, 200),
+    ("size_title", "عنوان المستند", 100, 50, 250),
+    ("size_logo", "الشعار", 100, 30, 250),
+    ("size_qr", "رموز QR", 100, 50, 250),
+    ("size_stamp", "خانات الختم والتوقيع", 100, 30, 300),
+)
+MARGIN_RANGE = (3, 30)
+
+
+def size_factor(style: dict, key: str) -> float:
+    """نسبة القياس المحفوظة (محصورة ضمن حدودها) كمعامل ضرب."""
+    for k, _label, default, lo, hi in INVOICE_SIZES:
+        if k == key:
+            try:
+                v = float(style.get(key, default))
+            except (TypeError, ValueError):
+                v = default
+            return max(lo, min(hi, v)) / 100
+    return 1.0
+
+
+def invoice_margin(style: dict) -> float:
+    try:
+        v = float(style.get("margin_mm", 12))
+    except (TypeError, ValueError):
+        v = 12
+    return max(MARGIN_RANGE[0], min(MARGIN_RANGE[1], v))
+
 
 def transparent_logo() -> QImage:
     """اللوغو بخلفية مفرغة: البياض يتحول إلى شفافية فيظهر نظيفاً على أي ورقة."""
@@ -153,8 +185,10 @@ def invoice_context(session: Session, inv: Invoice, paper: str = "A4") -> dict[s
     print_cfg = settings.get(session, "printing")
     status_note = "ملغاة" if inv.status == "cancelled" else ""
     company = settings.get(session, "company")
-    logo_h = 80 if thermal else _LOGO_HEIGHTS.get(paper, 110)
-    logo_w, logo_h = _logo_box(logo_h)
+    logo_h = int((80 if thermal else _LOGO_HEIGHTS.get(paper, 110)) * size_factor(style, "size_logo"))
+    logo_w, logo_h = _logo_box(max(20, logo_h))
+    fs = max(4, round(_FONT_SIZES.get(paper, 9) * size_factor(style, "size_text")))
+    name_base = _FONT_SIZES.get(paper, 9) + (3 if thermal else 4)
     return {
         "inv": inv, "company": company, "currency": cur, "seller": seller, "style": style,
         "terms": [ln.strip() for ln in (style.get("terms") or "").splitlines() if ln.strip()],
@@ -162,8 +196,13 @@ def invoice_context(session: Session, inv: Invoice, paper: str = "A4") -> dict[s
         "customer_address": getattr(inv, "customer_address", "") or (inv.customer.address if inv.customer else ""),
         "item_count": len(items), "qty_total": fmt_qty(sum(it.quantity for it in inv.items)),
         "items": items, "doc_title": titles.get(inv.kind, "فاتورة"), "thermal": thermal,
-        "fs": _FONT_SIZES.get(paper, 9),
-        "logo_w": logo_w, "logo_h": logo_h, "stamp_h": _STAMP_HEIGHTS.get(paper, 92), "qr_size": 75 if thermal else 64,
+        "fs": fs,
+        "name_fs": max(6, round(name_base * size_factor(style, "size_name"))),
+        "name_en_fs": max(5, round((_FONT_SIZES.get(paper, 9) - 1) * size_factor(style, "size_name_en"))),
+        "title_fs": max(6, round((_FONT_SIZES.get(paper, 9) + 8) * size_factor(style, "size_title"))),
+        "logo_w": logo_w, "logo_h": logo_h,
+        "stamp_h": max(16, round(_STAMP_HEIGHTS.get(paper, 92) * size_factor(style, "size_stamp"))),
+        "qr_size": max(30, round((75 if thermal else 64) * size_factor(style, "size_qr"))),
         "details": [ln.strip() for ln in (company.get("invoice_details") or "").splitlines() if ln.strip()],
         "facebook": facebook_link(company.get("facebook_url", "")),
         "shamcash": (company.get("shamcash_account") or "").strip(),
@@ -200,7 +239,8 @@ def build_invoice_document(session: Session, inv: Invoice, paper: str = "A4") ->
     return doc
 
 
-def page_layout(paper: str, doc: QTextDocument | None = None, landscape: bool = False) -> QPageLayout:
+def page_layout(paper: str, doc: QTextDocument | None = None, landscape: bool = False,
+                margin_mm: float | None = None) -> QPageLayout:
     if paper in ("80mm", "58mm"):
         width_mm = 80 if paper == "80mm" else 58
         margin = 3
@@ -214,7 +254,7 @@ def page_layout(paper: str, doc: QTextDocument | None = None, landscape: bool = 
                            QPageLayout.Unit.Millimeter)
     orientation = QPageLayout.Orientation.Landscape if landscape else QPageLayout.Orientation.Portrait
     return QPageLayout(QPageSize(_PAGE_IDS.get(paper, QPageSize.PageSizeId.A4)), orientation,
-                       QMarginsF(12, 12, 12, 12), QPageLayout.Unit.Millimeter)
+                       QMarginsF(*([12 if margin_mm is None else margin_mm] * 4)), QPageLayout.Unit.Millimeter)
 
 
 def paint_document(doc: QTextDocument, device, layout: QPageLayout, new_page) -> None:
@@ -234,10 +274,11 @@ def paint_document(doc: QTextDocument, device, layout: QPageLayout, new_page) ->
     painter.end()
 
 
-def document_to_pdf(doc: QTextDocument, path: Path, paper: str = "A4", landscape: bool = False) -> Path:
+def document_to_pdf(doc: QTextDocument, path: Path, paper: str = "A4", landscape: bool = False,
+                    margin_mm: float | None = None) -> Path:
     """يرسم المستند صفحة صفحة (بدون أرقام صفحات تلقائية)."""
     with _lock:
-        layout = page_layout(paper, doc, landscape)
+        layout = page_layout(paper, doc, landscape, margin_mm)
         writer = QPdfWriter(str(path))
         writer.setResolution(300)
         writer.setPageLayout(layout)
@@ -247,9 +288,10 @@ def document_to_pdf(doc: QTextDocument, path: Path, paper: str = "A4", landscape
     return path
 
 
-def print_document(doc: QTextDocument, printer, paper: str = "A4", landscape: bool = False) -> None:
+def print_document(doc: QTextDocument, printer, paper: str = "A4", landscape: bool = False,
+                   margin_mm: float | None = None) -> None:
     with _lock:
-        layout = page_layout(paper, doc, landscape)
+        layout = page_layout(paper, doc, landscape, margin_mm)
         printer.setPageLayout(layout)
         paint_document(doc, printer, layout, printer.newPage)
 
@@ -272,7 +314,7 @@ def invoice_pdf(session: Session, inv: Invoice, path: Path | str | None = None, 
         out = Path(path) if path else sub_dir("invoices") / f"{inv.number}.pdf"
         out.parent.mkdir(parents=True, exist_ok=True)
         try:
-            return document_to_pdf(doc, out, paper)
+            return document_to_pdf(doc, out, paper, margin_mm=invoice_margin(invoice_style(session)))
         finally:
             _dispose(doc)
 

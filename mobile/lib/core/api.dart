@@ -67,6 +67,7 @@ class ApiClient {
   Future<T> post<T>(String path, [Object? body]) => _run<T>(() => _dio.post(path, data: body));
   Future<T> put<T>(String path, [Object? body]) => _run<T>(() => _dio.put(path, data: body));
   Future<T> patch<T>(String path, [Object? body]) => _run<T>(() => _dio.patch(path, data: body));
+  Future<T> delete<T>(String path) => _run<T>(() => _dio.delete(path));
 
   /// يجرب كل عناوين السيرفر ويعيد أول عنوان يستجيب.
   static Future<(ServerInfo, Map<String, dynamic>)> probe(ServerInfo s) async {

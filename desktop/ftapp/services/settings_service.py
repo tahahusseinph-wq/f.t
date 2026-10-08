@@ -85,6 +85,15 @@ DEFAULTS: dict[str, Any] = {
         "show_signatures": True,
         "show_stamp": True,
         "show_warranty": True,
+        # قياسات الفاتورة (نسبة مئوية من الحجم الأساسي لكل نوع ورق) — تُعدَّل من الإعدادات وتُحفظ
+        "size_name": 140,      # اسم المنشأة
+        "size_name_en": 110,   # الاسم بالإنكليزية
+        "size_text": 100,      # نص الفاتورة والجدول
+        "size_title": 100,     # عنوان المستند (فاتورة مبيعات)
+        "size_logo": 100,      # الشعار
+        "size_qr": 100,        # رموز QR
+        "size_stamp": 100,     # خانات الختم والتوقيع
+        "margin_mm": 12,       # هوامش الورقة (مم)
     },
     "updates": {"check_url": "", "auto_check": True},
     "code_format": {"separator": "-", "serial_digits": 4},

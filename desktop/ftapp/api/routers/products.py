@@ -66,6 +66,25 @@ def get_product(product_id: int, currency: str | None = None, ctx: AuthContext =
     return _view(db, ctx, p, currency)
 
 
+@router.get("/products/{product_id}/edit")
+def product_for_edit(product_id: int, ctx: AuthContext = Depends(require("products.edit")),
+                     db: Session = Depends(get_db)) -> dict:
+    """القيم الخام القابلة للتعديل (بالعملة الأساسية) لنموذج التعديل في الموبايل."""
+    p = catalog_service.get_product(db, product_id)
+    return {"id": p.id, "name": p.name, "code": p.code, "barcode": p.barcode or "", "category_id": p.category_id,
+            "brand": p.brand or "", "model": p.model or "", "unit": p.unit or "قطعة", "cost_price": p.cost_price,
+            "margin": p.margin, "price_locked": p.price_locked, "sale_price": p.sale_price,
+            "min_stock": p.min_stock, "location": p.location or "", "details": p.details or "",
+            "notes": p.notes or "", "warranty": p.warranty or "", "quantity": p.quantity,
+            "is_active": p.is_active, "base_currency": currency_service.base(db).code}
+
+
+@router.delete("/products/{product_id}")
+def remove_product(product_id: int, ctx: AuthContext = Depends(require("products.delete")),
+                   db: Session = Depends(get_db)) -> dict:
+    return {"result": catalog_service.delete_product(db, ctx.user, product_id)}
+
+
 def _to_input(body: ProductIn, base=None) -> catalog_service.ProductInput:
     data = base or catalog_service.ProductInput(name=body.name)
     for key in ("name", "code", "barcode", "category_id", "brand", "model", "unit", "cost_price", "margin",

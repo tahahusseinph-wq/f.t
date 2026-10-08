@@ -82,6 +82,9 @@ def main() -> int:
         ui_cfg = settings_service.get(s, "ui")
         setup_done = auth_service.is_setup_done(s)
     theme.apply(app, ui_cfg.get("theme", "light"))
+    from ftapp.ui.widgets.forms import DialogFitter
+    fitter = DialogFitter(app)
+    app.installEventFilter(fitter)
     i18n.set_language(ui_cfg.get("language", "ar"))
     app.setLayoutDirection(i18n.direction())
 

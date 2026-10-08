@@ -54,8 +54,8 @@ class UserDialog(FormDialog):
                 cb.setToolTip("صلاحية حساسة لا تُمنح تلقائياً حتى للأدمن")
             self.perm_checks[perm] = cb
             grid.addWidget(cb, i // 2, i % 2)
-        self.root.insertWidget(self.root.count() - 1, box)
-        self.root.insertWidget(self.root.count() - 1, muted("الصلاحيات تُضبط تلقائياً حسب الدور، ويمكنك تخصيصها لكل مستخدم."))
+        self.root.addWidget(box)
+        self.root.addWidget(muted("الصلاحيات تُضبط تلقائياً حسب الدور، ويمكنك تخصيصها لكل مستخدم."))
         self._role_changed(initial=True)
         self.on_save = self._do
         self.finish_layout()

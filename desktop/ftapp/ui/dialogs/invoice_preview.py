@@ -17,8 +17,50 @@ from ftapp.models import Invoice
 from ftapp.services import currency_service, pdf_service, settings_service
 from ftapp.ui.context import ctx
 from ftapp.ui.widgets.common import Toast, button, confirm, error
+from ftapp.ui.widgets.forms import FormDialog
 
 RECEIPTS = ("80mm", "58mm")
+
+
+class InvoiceSizesDialog(FormDialog):
+    """قياسات الفاتورة المحفوظة: حجم اسم المنشأة والنص والشعار ورموز QR والختم والهوامش."""
+
+    def __init__(self, parent) -> None:
+        super().__init__(parent, "قياسات الفاتورة", 460)
+        with ctx.session() as (s, _):
+            style = settings_service.get(s, "invoice")
+        self.spins: dict[str, QSpinBox] = {}
+        for key, label, default, lo, hi in pdf_service.INVOICE_SIZES:
+            sb = QSpinBox()
+            sb.setRange(lo, hi)
+            sb.setSingleStep(5)
+            sb.setSuffix(" %")
+            sb.setValue(int(round(pdf_service.size_factor(style, key) * 100)))
+            self.spins[key] = sb
+            self.row(label, sb)
+        self.margin = QSpinBox()
+        self.margin.setRange(*pdf_service.MARGIN_RANGE)
+        self.margin.setSuffix(" مم")
+        self.margin.setValue(int(pdf_service.invoice_margin(style)))
+        self.row("هوامش الورقة", self.margin, "تُطبّق على ورق A4 وما يشبهه (الإيصالات الحرارية لها هوامش ثابتة).")
+        self.root.addWidget(button("استعادة القياسات الافتراضية", on_click=self._defaults))
+        hint = QLabel("100% = الحجم الأساسي. القياسات تُحفظ وتُطبّق على كل الفواتير (الكمبيوتر والموبايل).")
+        hint.setObjectName("hint")
+        hint.setWordWrap(True)
+        self.root.addWidget(hint)
+        self.on_save = self._do
+        self.finish_layout()
+
+    def _defaults(self) -> None:
+        for key, _label, default, _lo, _hi in pdf_service.INVOICE_SIZES:
+            self.spins[key].setValue(default)
+        self.margin.setValue(12)
+
+    def _do(self):
+        with ctx.session() as (s, _):
+            settings_service.update(s, "invoice", margin_mm=self.margin.value(),
+                                    **{k: sb.value() for k, sb in self.spins.items()})
+        return True
 
 
 def whatsapp_number(phone: str) -> str:
@@ -47,6 +89,7 @@ class InvoicePreviewDialog(QDialog):
             self.total_text = currency_service.format_amount(s, inv.total, inv.currency_code)
             self.paper = settings_service.get(s, "printing").get("paper", "A4")
             self.company = settings_service.get(s, "company").get("name", "")
+            self.margin = pdf_service.invoice_margin(settings_service.get(s, "invoice"))
         if self.paper not in pdf_service.PAPERS:
             self.paper = "A4"
         self.setWindowTitle(f"الفاتورة {self.number}")
@@ -102,6 +145,8 @@ class InvoicePreviewDialog(QDialog):
             b.clicked.connect(lambda _=False, f=slot: f())
             fmt.addWidget(b)
         fmt.addStretch(1)
+        fmt.addWidget(button("قياسات الفاتورة", "settings", on_click=self._sizes,
+                             tooltip="تكبير/تصغير اسم المنشأة والنص والشعار... وتُحفظ لكل الفواتير"))
         fmt.addWidget(button("استعادة الأصل", on_click=self._reset))
         lay.addLayout(fmt)
         hint = QLabel("المعاينة قابلة للتعديل: انقر على أي نص لتعديله أو لإضافة كتابة وتفاصيل. "
@@ -159,7 +204,7 @@ class InvoicePreviewDialog(QDialog):
 
     def _fit_width(self) -> None:
         """عرض الورقة في المعاينة = عرض الطباعة الفعلي، فتتطابق الأسطر مع الناتج."""
-        layout = pdf_service.page_layout(self._paper_id, None, self._landscape)
+        layout = pdf_service.page_layout(self._paper_id, None, self._landscape, self.margin)
         width = layout.paintRect(QPageLayout.Unit.Point).width()
         self.view.setFixedWidth(int(min(width + 26, max(300, self.width() - 90))))
 
@@ -173,6 +218,15 @@ class InvoicePreviewDialog(QDialog):
             self.paper_combo.blockSignals(False)
             return
         self._render()
+
+    def _sizes(self) -> None:
+        if self._keep.isModified() and not confirm(self, "تطبيق القياسات يعيد بناء الفاتورة وستضيع تعديلاتك النصية. متابعة؟"):
+            return
+        if InvoiceSizesDialog(self).exec():
+            with ctx.session() as (s, _):
+                self.margin = pdf_service.invoice_margin(settings_service.get(s, "invoice"))
+            self._render()
+            Toast.show_message(self, "تم حفظ قياسات الفاتورة", "success")
 
     def _reset(self) -> None:
         if not self._keep.isModified() or confirm(self, "التخلي عن كل التعديلات واستعادة الفاتورة الأصلية؟"):
@@ -236,15 +290,15 @@ class InvoicePreviewDialog(QDialog):
 
     def _print(self) -> None:
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-        printer.setPageLayout(pdf_service.page_layout(self._paper_id, None, self._landscape))
+        printer.setPageLayout(pdf_service.page_layout(self._paper_id, None, self._landscape, self.margin))
         if QPrintDialog(printer, self).exec():
-            pdf_service.print_document(self._output_doc(), printer, self._paper_id, self._landscape)
+            pdf_service.print_document(self._output_doc(), printer, self._paper_id, self._landscape, self.margin)
             Toast.show_message(self, "تم إرسال الفاتورة للطابعة", "success")
 
     def _pdf(self, path: Path) -> Path:
         pdf_service.ensure_qt()
         path.parent.mkdir(parents=True, exist_ok=True)
-        return pdf_service.document_to_pdf(self._output_doc(), path, self._paper_id, self._landscape)
+        return pdf_service.document_to_pdf(self._output_doc(), path, self._paper_id, self._landscape, self.margin)
 
     def _save_document(self) -> None:
         pdf_filter = "ملف PDF (*.pdf)"

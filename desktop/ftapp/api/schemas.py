@@ -113,13 +113,19 @@ class UserIn(BaseModel):
     role: str = "viewer"
     full_name: str = ""
     phone: str = ""
+    commission_rate: float = Field(default=0.0, ge=0, le=100)
+    permissions: dict[str, bool] = Field(default_factory=dict)
+    is_active: bool = True
 
 
 class UserPatch(BaseModel):
     full_name: str | None = None
+    phone: str | None = None
     role: str | None = None
     is_active: bool | None = None
     password: str | None = None
+    commission_rate: float | None = Field(default=None, ge=0, le=100)
+    permissions: dict[str, bool] | None = None   # تخصيصات تختلف عن افتراضيات الدور
 
 
 class SyncOp(BaseModel):
